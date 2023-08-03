@@ -1,0 +1,367 @@
+
+#demux_fastq = demuxed fastq
+#ready_fastq = raw fastq for pipeline
+#ssheet_id = a ID in SampleSheet.csv
+#target_id = a ID to converting
+#DEMUXPATH = demux path
+#IDMAP = ssheet_id:target_id
+#READYPATH = ready path
+
+from pathlib import Path
+import json
+import csv
+
+class Demux2Ready:
+    def __init__(self, conf_fn, work_dir):
+        Path(work_dir).mkdir(exist_ok=True)
+        self.readypath = Path(work_dir) / "readyfastq"
+        self.readypath.mkdir(exist_ok=True)
+        self.demuxpath_s = self.grep_demuxpath(conf_fn)
+        #
+        self.idmap_dic = self.grep_idmap(conf_fn)
+        self.fastq_dic = self.init_fastq_dic()
+        if args.mode in ['mksh_d2r','prepare']:
+            self.find_fastq()
+
+        # make a shell script for demux2ready
+        self.demux2ready_sh = Path(work_dir) / "demux2ready.sh"
+        # make a shell script for fastp statistics
+        self.fastp_sh = Path(work_dir) / "fastp.sh"
+        # sum-up fastp json files into A TSV file
+        self.fastp_summary = Path(work_dir) / "fastp.summary.tsv"
+        # make a config file for rnaseq-pipeline
+        self.samplefile_path = Path(work_dir) / "sample_file"
+        # make a config file for nf-core/rnaseq
+        self.nfcore_rnaseq_samplesheet = Path(work_dir) / "nfcore_rnaseq_samplesheet.csv"
+        # make fastp shell script for read pre-processing
+        self.fastp_clean_sh = Path(work_dir) / "fastp_clean.sh"
+        self.cleanpath = Path(work_dir) / "cleanfastq"
+        # make tophat shell script
+        self.tophat_sh = Path(work_dir) / "tophat.sh"
+        self.tophatpath = Path(work_dir) / "tophat"
+        # make cufflinks shell script
+        self.cufflinks_sh = Path(work_dir) / "cufflinks.sh"
+        self.cufflinkspath = Path(work_dir) / "cufflinks"
+
+    def init_fastq_dic(self):
+        fastq_dic = dict()
+        fastq_dic.setdefault('demux', {})
+        fastq_dic.setdefault('ready', {})
+        for ssheet_id, target_id in self.idmap_dic['for'].items():
+            fastq_dic['demux'].setdefault(ssheet_id, {}).setdefault('r1_s', [])
+            fastq_dic['demux'].setdefault(ssheet_id, {}).setdefault('r2_s', [])
+            #
+            ready_fastq_r1 = self.readypath / f"{target_id}_R1.fastq.gz"
+            ready_fastq_r2 = self.readypath / f"{target_id}_R2.fastq.gz"
+            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r1', ready_fastq_r1)
+            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r2', ready_fastq_r2)
+        return fastq_dic
+
+    def find_fastq(self):
+        for demuxpath in self.demuxpath_s:
+            for ssheet_id, target_id in self.idmap_dic['for'].items():
+                r1_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz')
+                self.add_fastq_path_s('r1', r1_s, ssheet_id)
+                r2_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz')
+                self.add_fastq_path_s('r2', r2_s, ssheet_id)
+
+    def add_fastq_path_s(self, r_tag, r_s, ssheet_id):
+        for r_path in r_s:
+            if r_tag in ['r1']:
+                if r_path not in self.fastq_dic['demux'][ssheet_id]['r1_s']:
+                    self.fastq_dic['demux'][ssheet_id]['r1_s'].append(r_path)
+            elif r_tag in ['r2']:
+                if r_path not in self.fastq_dic['demux'][ssheet_id]['r2_s']:
+                    self.fastq_dic['demux'][ssheet_id]['r2_s'].append(r_path)
+            else:
+                pass
+        return 1
+
+    def grep_demuxpath(self, conf_fn):
+        demuxpath_s = list()
+        for line in open(conf_fn):
+            items = line.rstrip().split()
+            if not items:
+                continue
+            if not items[0] in ['DEMUXPATH']:
+                continue
+            if items[1] not in demuxpath_s:
+                demuxpath = Path(items[1])
+                demuxpath_s.append(demuxpath)
+        return demuxpath_s
+
+    def grep_idmap(self, conf_fn):
+        idmap_dic = dict()
+        idmap_dic.setdefault('for', {})
+        idmap_dic.setdefault('rev', {})
+        for line in open(conf_fn):
+            items = line.rstrip().split()
+            if not items:
+                continue
+            if not items[0] in ['IDMAP']:
+                continue
+            idmap_dic['for'].setdefault(items[1], items[2])
+            idmap_dic['rev'].setdefault(items[2], []).append(items[1])
+        return idmap_dic
+
+    def make_demux2ready_sh(self):
+        outfh = self.demux2ready_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            r1_s = list()
+            r2_s = list()
+            for ssheet_id in self.idmap_dic['rev'][target_id]:
+                r1_s.extend(self.fastq_dic['demux'][ssheet_id]['r1_s'])
+                r2_s.extend(self.fastq_dic['demux'][ssheet_id]['r2_s'])
+
+            # for fastq read 1
+            if len(r1_s) in [1]:
+                _cmd = ['ln -s']
+                _cmd.append(str(r1_s[0]))
+                _cmd.append(str(read_dic['r1']))
+                outfh.write(f"{' '.join(_cmd)}\n")
+            else:
+                _cmd = ['cat']
+                _cmd.append(' '.join([str(x) for x in sorted(r1_s)]))
+                _cmd.append('>')
+                _cmd.append(str(read_dic['r1']))
+                outfh.write(f"{' '.join(_cmd)}\n")
+            # for fastq read 2
+            if len(r2_s) in [1]:
+                _cmd = ['ln -s']
+                _cmd.append(str(r2_s[0]))
+                _cmd.append(str(read_dic['r2']))
+                outfh.write(f"{' '.join(_cmd)}\n")
+            else:
+                _cmd = ['cat']
+                _cmd.append(' '.join([str(x) for x in sorted(r2_s)]))
+                _cmd.append('>')
+                _cmd.append(str(read_dic['r2']))
+                outfh.write(f"{' '.join(_cmd)}\n")
+        outfh.close()
+        return 1
+
+    def prepare_now(self):
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            r1_s = list()
+            r2_s = list()
+            for ssheet_id in self.idmap_dic['rev'][target_id]:
+                r1_s.extend(self.fastq_dic['demux'][ssheet_id]['r1_s'])
+                r2_s.extend(self.fastq_dic['demux'][ssheet_id]['r2_s'])
+
+            # for fastq read 1
+            if len(r1_s) in [1]:
+                read_dic['r1'].symlink_to(r1_s[0])
+            else:
+                pass # to do using subprocess
+            # for fastq read 2
+            if len(r2_s) in [1]:
+                read_dic['r2'].symlink_to(r2_s[0])
+            else:
+                pass # to do using subprocess
+        return 1
+
+    def make_samplefile(self):
+        outfh = self.samplefile_path.open('w')
+        outfh.write('REF\tH_sapiens_GRCh38_ENS109\n')
+        outfh.write('MODE\tquant\n')
+        sample_num = 0
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            sample_num += 1
+            items = ['SAMPLE']
+            items.append("IBC{0:0>4}".format(sample_num))
+            items.append('truseq')
+            items.append(target_id)
+            items.append(target_id.split('_')[0])
+            items.append(str(sample_num))
+            items.append('1')
+            items.append('1')
+            items.append(str(read_dic['r1']))
+            outfh.write("{0}\n".format('\t'.join(items)))
+            items = ['SAMPLE']
+            items.append("IBC{0:0>4}".format(sample_num))
+            items.append('truseq')
+            items.append(target_id)
+            items.append(target_id.split('_')[0])
+            items.append(str(sample_num))
+            items.append('1')
+            items.append('2')
+            items.append(str(read_dic['r2']))
+            outfh.write("{0}\n".format('\t'.join(items)))
+        outfh.close()
+        return 1
+
+    def make_fastp_sh(self):
+        outfh = self.fastp_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['fastp']
+            _cmd.append('--in1')
+            _cmd.append(str(read_dic['r1']))
+            _cmd.append('--in2')
+            _cmd.append(str(read_dic['r2']))
+            _cmd.append('--json')
+            _cmd.append(str(self.readypath / f"{target_id}.fastp.json"))
+            _cmd.append('--html')
+            _cmd.append(str(self.readypath / f"{target_id}.fastp.html"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_fastp_clean_sh(self):
+        outfh = self.fastp_clean_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['fastp']
+            _cmd.append('--in1')
+            _cmd.append(str(read_dic['r1']))
+            _cmd.append('--out1')
+            _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append('--trim_tail1 100') # optional 151PE to 51PE
+            _cmd.append('--in2')
+            _cmd.append(str(read_dic['r2']))
+            _cmd.append('--out2')
+            _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            _cmd.append('--trim_tail2 100') # optional 151PE to 51PE
+            _cmd.append('--json')
+            _cmd.append(str(self.cleanpath / f"{target_id}.fastp.json"))
+            _cmd.append('--html')
+            _cmd.append(str(self.cleanpath / f"{target_id}.fastp.html"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def parse_fastp(self):
+        fastp_dic = dict()
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            fastp_json = self.cleanpath / f"{target_id}.fastp.json"
+            fastp_dic.setdefault(target_id, json.load(fastp_json.open("r")))
+
+        outfh = self.fastp_summary.open('w')
+        headers = ["Samples"]
+        headers.append("ReadsCount")
+        headers.append("BasesCount")
+        headers.append("BasesCountGb")
+        headers.append("GCRate")
+        headers.append("Q20BaseRate")
+        headers.append("Q30BaseRate")
+        headers.append("DupRate")
+        headers.append("InsertSize")
+        headers.append("R1MeanLen")
+        headers.append("R2MeanLen")
+        headers.append("GoodReadRate")
+        outfh.write('{0}\n'.format("\t".join(headers)))
+        for target_id, info_dic in fastp_dic.items():
+            items = [target_id]
+            total_reads = info_dic["summary"]["before_filtering"]["total_reads"]
+            items.append(total_reads)
+            items.append(info_dic["summary"]["before_filtering"]["total_bases"])
+            items.append(round(int(info_dic["summary"]["before_filtering"]["total_bases"])*0.000000001, 3))
+            items.append(round(float(info_dic["summary"]["before_filtering"]["gc_content"])*100, 3))
+            items.append(round(float(info_dic["summary"]["before_filtering"]["q20_rate"])*100, 3))
+            items.append(round(float(info_dic["summary"]["before_filtering"]["q30_rate"])*100, 3))
+            items.append(round(float(info_dic["duplication"]["rate"])*100, 3))
+            items.append(info_dic["insert_size"]["peak"])
+            items.append(info_dic["summary"]["before_filtering"]["read1_mean_length"])
+            items.append(info_dic["summary"]["before_filtering"]["read2_mean_length"])
+            items.append(round(int(info_dic["filtering_result"]["passed_filter_reads"])/float(total_reads)*100, 3))
+            outfh.write("{0}\n".format("\t".join([str(x) for x in items])))
+        outfh.close()
+
+    def make_nfcore_rnaseq_samplesheet(self):
+        outfh = self.nfcore_rnaseq_samplesheet.open("w")
+        csvh = csv.writer(outfh)
+        header = ["sample","fastq_1","fastq_2","strandedness"]
+        csvh.writerow(header)
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            items = [target_id]
+            items.append(str(read_dic['r1']))
+            items.append(str(read_dic['r2']))
+            items.append('auto')
+            csvh.writerow(items)
+        outfh.close()
+
+
+    def make_tophat_sh(self):
+        outfh = self.tophat_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            wkdir = self.tophatpath / target_id
+            wkdir.mkdir(exist_ok=True)
+            _cmd = ['tophat']
+            _cmd.append("-o")
+            _cmd.append(str(wkdir))
+            _cmd.append("-p")
+            _cmd.append("[CPU]")
+            _cmd.append("--library-type")
+            _cmd.append("fr-unstranded") # fr-unstranded, fr-firststrand, fr-secondstrand
+            _cmd.append("--rg-id")
+            _cmd.append(target_id)
+            _cmd.append("--rg-sample")
+            _cmd.append(target_id)
+            _cmd.append("-G")
+            _cmd.append("[GTF]")
+            _cmd.append("[BWA_INDEXING]")
+            _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_cufflinks_sh(self):
+        outfh = self.cufflinks_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            wkdir = self.cufflinkspath / target_id
+            wkdir.mkdir(exist_ok=True)
+            _cmd = ['cufflinks']
+            _cmd.append("-o")
+            _cmd.append(str(wkdir))
+            _cmd.append("-p")
+            _cmd.append("[CPU]")
+            _cmd.append("-G")
+            _cmd.append("[GTF]")
+            _cmd.append(str(self.tophatpath / target_id / "accepted_hits.bam"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+
+
+
+def main(args):
+
+    obj = Demux2Ready(args.conf_fn, args.work_dir)
+
+    if args.mode in ['mksh_d2r']:
+        obj.make_demux2ready_sh()
+    elif args.mode in ['prepare']:
+        obj.prepare_now()
+
+    elif args.mode in ['mksh_fastp']:
+        obj.make_fastp_sh()
+    elif args.mode in ['mksh_fastp_clean']:
+        obj.cleanpath.mkdir(exist_ok=True)
+        obj.make_fastp_clean_sh()
+    elif args.mode in ['parse_fastp']:
+        obj.parse_fastp()
+
+    elif args.mode in ['mksh_tophat']:
+        obj.tophatpath.mkdir(exist_ok=True)
+        obj.make_tophat_sh()
+    elif args.mode in ['mksh_cufflinks']:
+        obj.cufflinkspath.mkdir(exist_ok=True)
+        obj.make_cufflinks_sh()
+
+    elif args.mode in ['mkconf_nfcore_rnaseq']:
+        obj.make_nfcore_rnaseq_samplesheet()
+    elif args.mode in ['samplefile']:
+        obj.make_samplefile()
+
+
+
+
+if __name__=='__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--conf-fn', default='./example/config.tsv')
+    parser.add_argument('--work-dir', default='./')
+    parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
+                                           'mksh_fastp', 'mksh_fastp_clean', 'parse_fastp',
+                                           'mksh_tophat', 'mksh_cufflinks',
+                                           'mkconf_nfcore_rnaseq', 'samplefile'),
+                        default='mksh_d2r')
+    args = parser.parse_args()
+    main(args)
+
