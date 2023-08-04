@@ -88,9 +88,22 @@ class Tophat:
 
 
 class Cufflinks:
-    def __init__(self, wkdir, outprefix):
+    def __init__(self, wkdir, outprefix, gene2desc):
         self.wkdir = Path(wkdir)
         self.sample_names = list()
+        self.gene2desc_fp = Path(gene2desc)
+
+        # setting vars for annotation
+        self.header_names = list()
+        self.anno_names = list()
+        _names = [("locus", "Locus"),
+                  ("name", "GeneName"),
+                  ("symbol", "GeneSymbol"),
+                  ("description", "Description"),
+                  ("biotype", "Biotype")]
+        for anno_name, header_name in _names:
+            self.anno_names.append(anno_name)
+            self.header_names.append(header_name)
 
         # parse gene.fpkm_tracking files | cufflinks with -G option
         self.gene_path_dic = dict()
@@ -98,6 +111,10 @@ class Cufflinks:
         self.gene_fpkm_dic = dict()
         self.find_fpkm_tracking_path("genes", "cufflinks")
         self.parse_fpkm_tracking_path("genes")
+        if self.gene2desc_fp.is_file():
+            self.anno_gene2desc("BIOTYPE", "biotype")
+            self.anno_gene2desc("SYMBOL", "symbol")
+            self.anno_gene2desc("DESCRIPTION", "description")
         self.write_fpkm_tsv("genes", 0.0, self.wkdir / f"{outprefix}.genes.all.fpkm.tsv")
         self.write_fpkm_tsv("genes", 0.3, self.wkdir / f"{outprefix}.genes.exp.fpkm.tsv")
 
@@ -110,6 +127,9 @@ class Cufflinks:
         self.write_fpkm_tsv("isoforms", 0.0, self.wkdir / f"{outprefix}.trans.all.fpkm.tsv")
         self.write_fpkm_tsv("isoforms", 0.3, self.wkdir / f"{outprefix}.trans.exp.fpkm.tsv")
 
+
+
+
     def write_fpkm_tsv(self, molecule_type, fpkm_criteria, outfp):
         if molecule_type in ["genes"]:
             _info_dic = self.gene_info_dic
@@ -119,26 +139,45 @@ class Cufflinks:
             _fpkm_dic = self.tran_fpkm_dic
 
         logging.info(f"writing FPKM table... {str(outfp)}")
-        outfh = outfp.open("w")
+
         headers = ["GeneID"]
-        headers.append("Locus")
-        headers.append("GeneName")
         headers.extend(self.sample_names)
+        headers.extend(self.header_names)
+
+        outfh = outfp.open("w")
         outfh.write("{0}\n".format("\t".join([str(x) for x in headers])))
         for _id, _sub_dic in _fpkm_dic.items():
             items = [_id]
-            items.append(_info_dic[_id]["locus"])
-            items.append(_info_dic[_id]["name"])
             fpkm_s = list()
             for sample_name in self.sample_names:
                 _fpkm = _sub_dic[sample_name]
                 fpkm_s.append(_fpkm)
                 items.append(round(_fpkm, 4))
+                #items.append(int(_fpkm))
+
+            for anno_name in self.anno_names:
+                if anno_name in _info_dic[_id]:
+                    items.append(_info_dic[_id][anno_name])
+                else:
+                    items.append("None")
+
             if max(fpkm_s) >= fpkm_criteria:
                 outfh.write("{0}\n".format("\t".join([str(x) for x in items])))
         outfh.close()
         return 1
 
+    def anno_gene2desc(self, colname, key):
+        for line in self.gene2desc_fp.open():
+            items = line.rstrip('\n').split('\t')
+            if items[0] in ["ID"]:
+                idx_dic = dict()
+                for idx, item in enumerate(items):
+                    idx_dic.setdefault(item, idx)
+                continue
+            _id = items[idx_dic["ID"]]
+            if _id in self.gene_info_dic:
+                self.gene_info_dic[_id].setdefault(key, items[idx_dic[colname]])
+        return 1
 
     def parse_fpkm_tracking_path(self, molecule_type):
         if molecule_type in ["genes"]:
@@ -194,7 +233,7 @@ def main(args):
     if args.biotool in ['tophat']:
         tophat = Tophat(args.wkdir, args.outprefix)
     elif args.biotool in ['cufflinks']:
-        tophat = Cufflinks(args.wkdir, args.outprefix)
+        tophat = Cufflinks(args.wkdir, args.outprefix, args.gene2desc)
 
 
 if __name__=='__main__':
@@ -208,6 +247,7 @@ if __name__=='__main__':
 
     subparser = subparsers.add_parser("cufflinks")
     subparser.add_argument("--outprefix", default="MultiParser.Cufflinks")
+    subparser.add_argument("--gene2desc", default="anno.gene2desc.tsv")
 
     args = parser.parse_args()
     main(args)
