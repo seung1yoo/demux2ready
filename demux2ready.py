@@ -22,6 +22,8 @@ class Demux2Ready:
         self.fastq_dic = self.init_fastq_dic()
         if args.mode in ['mksh_d2r','prepare']:
             self.find_fastq()
+        #
+        self.comp_dic = self.grep_comp(conf_fn)
 
         # make a shell script for demux2ready
         self.demux2ready_sh = Path(work_dir) / "demux2ready.sh"
@@ -42,6 +44,9 @@ class Demux2Ready:
         # make cufflinks shell script
         self.cufflinks_sh = Path(work_dir) / "cufflinks.sh"
         self.cufflinkspath = Path(work_dir) / "cufflinks"
+        # make cuffdiff shell script
+        self.cuffdiff_sh = Path(work_dir) / "cuffdiff.sh"
+        self.cuffdiffpath = Path(work_dir) / "cuffdiff"
 
     def init_fastq_dic(self):
         fastq_dic = dict()
@@ -103,6 +108,28 @@ class Demux2Ready:
             idmap_dic['for'].setdefault(items[1], items[2])
             idmap_dic['rev'].setdefault(items[2], []).append(items[1])
         return idmap_dic
+
+    def grep_comp(self, conf_fn):
+        comp_dic = dict()
+
+        for line in open(conf_fn):
+            items = line.rstrip().split()
+            if not items:
+                continue
+            if not items[0] in ['COMP']:
+                continue
+
+            comp_id = items[1]
+            cont_group_id = items[2]
+            cont_sample_s = items[3].split(',')
+            case_group_id = items[4]
+            case_sample_s = items[5].split(',')
+
+            comp_dic.setdefault(comp_id, {}).setdefault('cont', {}).setdefault('group_id', cont_group_id)
+            comp_dic.setdefault(comp_id, {}).setdefault('cont', {}).setdefault('sample_s', cont_sample_s)
+            comp_dic.setdefault(comp_id, {}).setdefault('case', {}).setdefault('group_id', case_group_id)
+            comp_dic.setdefault(comp_id, {}).setdefault('case', {}).setdefault('sample_s', case_sample_s)
+        return comp_dic
 
     def make_demux2ready_sh(self):
         outfh = self.demux2ready_sh.open('w')
@@ -317,6 +344,36 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_cuffdiff_sh(self):
+        outfh = self.cuffdiff_sh.open("w")
+        for comp_id, group_dic in self.comp_dic.items():
+            wkdir = self.cuffdiffpath / comp_id
+            wkdir.mkdir(exist_ok=True)
+            _cmd = ['cuffdiff']
+            _cmd.append("-o")
+            _cmd.append(str(wkdir))
+            _cmd.append("-p")
+            _cmd.append("[CPU]")
+            _cmd.append("--library-type")
+            _cmd.append("fr-unstranded")
+            _cmd.append("--dispersion-method")
+            _cmd.append("pooled")
+            _cmd.append("--library-norm-method")
+            _cmd.append("classic-fpkm")
+            _cmd.append("-M")
+            _cmd.append("[MASKGTF]")
+            _cmd.append("-L")
+            cont_group_id = group_dic["cont"]["group_id"]
+            case_group_id = group_dic["case"]["group_id"]
+            _cmd.append(f"{cont_group_id},{case_group_id}")
+            _cmd.append("[GTF]")
+            cont_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["cont"]["sample_s"]])
+            case_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["case"]["sample_s"]])
+            _cmd.append(cont_bam)
+            _cmd.append(case_bam)
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
 
 
 
@@ -343,6 +400,9 @@ def main(args):
     elif args.mode in ['mksh_cufflinks']:
         obj.cufflinkspath.mkdir(exist_ok=True)
         obj.make_cufflinks_sh()
+    elif args.mode in ['mksh_cuffdiff']:
+        obj.cuffdiffpath.mkdir(exist_ok=True)
+        obj.make_cuffdiff_sh()
 
     elif args.mode in ['mkconf_nfcore_rnaseq']:
         obj.make_nfcore_rnaseq_samplesheet()
@@ -359,7 +419,7 @@ if __name__=='__main__':
     parser.add_argument('--work-dir', default='./')
     parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
                                            'mksh_fastp', 'mksh_fastp_clean', 'parse_fastp',
-                                           'mksh_tophat', 'mksh_cufflinks',
+                                           'mksh_tophat', 'mksh_cufflinks', 'mksh_cuffdiff',
                                            'mkconf_nfcore_rnaseq', 'samplefile'),
                         default='mksh_d2r')
     args = parser.parse_args()
