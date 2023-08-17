@@ -17,13 +17,12 @@ class Demux2Ready:
         self.readypath = Path(work_dir) / "readyfastq"
         self.readypath.mkdir(exist_ok=True)
         self.demuxpath_s = self.grep_demuxpath(conf_fn)
-        #
         self.idmap_dic = self.grep_idmap(conf_fn)
         self.fastq_dic = self.init_fastq_dic()
         if args.mode in ['mksh_d2r','prepare']:
             self.find_fastq()
-        #
         self.comp_dic = self.grep_comp(conf_fn)
+        self.meta_dic = self.grep_meta(conf_fn)
 
         # make a shell script for demux2ready
         self.demux2ready_sh = Path(work_dir) / "demux2ready.sh"
@@ -31,19 +30,27 @@ class Demux2Ready:
         self.fastp_sh = Path(work_dir) / "fastp.sh"
         # sum-up fastp json files into A TSV file
         self.fastp_summary = Path(work_dir) / "fastp.summary.tsv"
+
         # make a config file for rnaseq-pipeline
         self.samplefile_path = Path(work_dir) / "sample_file"
         # make a config file for nf-core/rnaseq
         self.nfcore_rnaseq_samplesheet = Path(work_dir) / "nfcore_rnaseq_samplesheet.csv"
+
         # make fastp shell script for read pre-processing
         self.fastp_clean_sh = Path(work_dir) / "fastp_clean.sh"
         self.cleanpath = Path(work_dir) / "cleanfastq"
         # make tophat shell script
         self.tophat_sh = Path(work_dir) / "tophat.sh"
         self.tophatpath = Path(work_dir) / "tophat"
+        # make cuffquant shell script
+        self.cuffquant_sh = Path(work_dir) / "cuffquant.sh"
+        self.cuffquantpath = Path(work_dir) / "cuffquant"
         # make cufflinks shell script
         self.cufflinks_sh = Path(work_dir) / "cufflinks.sh"
         self.cufflinkspath = Path(work_dir) / "cufflinks"
+        # make cuffnorm shell script
+        self.cuffnorm_sh = Path(work_dir) / "cuffnorm.sh"
+        self.cuffnormpath = Path(work_dir) / "cuffnorm"
         # make cuffdiff shell script
         self.cuffdiff_sh = Path(work_dir) / "cuffdiff.sh"
         self.cuffdiffpath = Path(work_dir) / "cuffdiff"
@@ -131,6 +138,36 @@ class Demux2Ready:
             comp_dic.setdefault(comp_id, {}).setdefault('case', {}).setdefault('sample_s', case_sample_s)
         return comp_dic
 
+    def grep_meta(self, conf_fn):
+        meta_dic = dict()
+        meta_dic.setdefault("cpu", "[CPU]")
+        meta_dic.setdefault("gtf", "[GTF]")
+        meta_dic.setdefault("mask_gtf", "[MASK_GTF]")
+        meta_dic.setdefault("bowtie2_index", "[BOWTIE2_INDEX]")
+        meta_dic.setdefault("genome_fasta", "[GENOME_FASTA]")
+        meta_dic.setdefault("library_type", "[LIBRARY_TYPE]")
+        for line in open(conf_fn):
+            items = line.rstrip().split()
+            if not items:
+                continue
+            if not items[0] in ['META']:
+                continue
+            key = items[1]
+            if key in ["CPU"]:
+                meta_dic["cpu"] = items[2]
+            elif key in ["GTF"]:
+                meta_dic["gtf"] = items[2]
+            elif key in ["MASK_GTF"]:
+                meta_dic["mask_gtf"] = items[2]
+            elif key in ["BOWTIE2_INDEX"]:
+                meta_dic["bowtie2_index"] = items[2]
+            elif key in ["GENOME_FASTA"]:
+                meta_dic["genome_fasta"] = items[2]
+            elif key in ["LIBRARY_TYPE"]:
+                meta_dic["library_type"] = items[2]
+
+        return meta_dic
+
     def make_demux2ready_sh(self):
         outfh = self.demux2ready_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -217,6 +254,19 @@ class Demux2Ready:
         outfh.close()
         return 1
 
+    def make_nfcore_rnaseq_samplesheet(self):
+        outfh = self.nfcore_rnaseq_samplesheet.open("w")
+        csvh = csv.writer(outfh)
+        header = ["sample","fastq_1","fastq_2","strandedness"]
+        csvh.writerow(header)
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            items = [target_id]
+            items.append(str(read_dic['r1']))
+            items.append(str(read_dic['r2']))
+            items.append('auto')
+            csvh.writerow(items)
+        outfh.close()
+
     def make_fastp_sh(self):
         outfh = self.fastp_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -240,12 +290,12 @@ class Demux2Ready:
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--out1')
             _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
-            _cmd.append('--trim_tail1 100') # optional 151PE to 51PE
+            #_cmd.append('--trim_tail1 100') # optional 151PE to 51PE
             _cmd.append('--in2')
             _cmd.append(str(read_dic['r2']))
             _cmd.append('--out2')
             _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
-            _cmd.append('--trim_tail2 100') # optional 151PE to 51PE
+            #_cmd.append('--trim_tail2 100') # optional 151PE to 51PE
             _cmd.append('--json')
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.json"))
             _cmd.append('--html')
@@ -256,8 +306,12 @@ class Demux2Ready:
     def parse_fastp(self):
         fastp_dic = dict()
         for target_id, read_dic in self.fastq_dic['ready'].items():
+            fastp_json = self.readypath / f"{target_id}.fastp.json"
+            if fastp_json.exists():
+                fastp_dic.setdefault(target_id, json.load(fastp_json.open("r")))
             fastp_json = self.cleanpath / f"{target_id}.fastp.json"
-            fastp_dic.setdefault(target_id, json.load(fastp_json.open("r")))
+            if fastp_json.exists():
+                fastp_dic.setdefault(target_id, json.load(fastp_json.open("r")))
 
         outfh = self.fastp_summary.open('w')
         headers = ["Samples"]
@@ -290,19 +344,6 @@ class Demux2Ready:
             outfh.write("{0}\n".format("\t".join([str(x) for x in items])))
         outfh.close()
 
-    def make_nfcore_rnaseq_samplesheet(self):
-        outfh = self.nfcore_rnaseq_samplesheet.open("w")
-        csvh = csv.writer(outfh)
-        header = ["sample","fastq_1","fastq_2","strandedness"]
-        csvh.writerow(header)
-        for target_id, read_dic in self.fastq_dic['ready'].items():
-            items = [target_id]
-            items.append(str(read_dic['r1']))
-            items.append(str(read_dic['r2']))
-            items.append('auto')
-            csvh.writerow(items)
-        outfh.close()
-
 
     def make_tophat_sh(self):
         outfh = self.tophat_sh.open('w')
@@ -313,18 +354,40 @@ class Demux2Ready:
             _cmd.append("-o")
             _cmd.append(str(wkdir))
             _cmd.append("-p")
-            _cmd.append("[CPU]")
+            _cmd.append(self.meta_dic["cpu"])
             _cmd.append("--library-type")
-            _cmd.append("fr-unstranded") # fr-unstranded, fr-firststrand, fr-secondstrand
+            _cmd.append(self.meta_dic["library_type"]) # fr-unstranded, fr-firststrand, fr-secondstrand
             _cmd.append("--rg-id")
             _cmd.append(target_id)
             _cmd.append("--rg-sample")
             _cmd.append(target_id)
             _cmd.append("-G")
-            _cmd.append("[GTF]")
-            _cmd.append("[BWA_INDEXING]")
+            _cmd.append(self.meta_dic["gtf"])
+            _cmd.append(self.meta_dic["bowtie2_index"])
             _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
             _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_cuffquant_sh(self):
+        outfh = self.cuffquant_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            wkdir = self.cuffquantpath / target_id
+            wkdir.mkdir(exist_ok=True)
+            _cmd = ['cuffquant']
+            _cmd.append("-o")
+            _cmd.append(str(wkdir))
+            _cmd.append("-p")
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append("--library-type")
+            _cmd.append(self.meta_dic["library_type"])
+            _cmd.append("--multi-read-correct")
+            _cmd.append("--frag-bias-correct")
+            _cmd.append(self.meta_dic["genome_fasta"])
+            _cmd.append("--mask-file")
+            _cmd.append(self.meta_dic["mask_gtf"])
+            _cmd.append(self.meta_dic["gtf"])
+            _cmd.append(str(self.tophatpath / target_id / "accepted_hits.bam"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
@@ -337,12 +400,51 @@ class Demux2Ready:
             _cmd.append("-o")
             _cmd.append(str(wkdir))
             _cmd.append("-p")
-            _cmd.append("[CPU]")
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append("--library-type")
+            _cmd.append(self.meta_dic["library_type"])
+            _cmd.append("--multi-read-correct")
+            _cmd.append("--frag-bias-correct")
+            _cmd.append(self.meta_dic["genome_fasta"])
+            _cmd.append("--mask-file")
+            _cmd.append(self.meta_dic["mask_gtf"])
             _cmd.append("-G")
-            _cmd.append("[GTF]")
-            _cmd.append(str(self.tophatpath / target_id / "accepted_hits.bam"))
+            _cmd.append(self.meta_dic["gtf"])
+            _cmd.append(str(self.cuffquantpath / target_id / "abundances.cxb"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
+
+    def make_cuffnorm_sh(self):
+        wkdir = self.cuffnormpath
+        wkdir.mkdir(exist_ok=True)
+
+        target_id_s = list()
+        cxb_s = list()
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            target_id_s.append(target_id)
+            cxb_s.append(str(self.cuffquantpath / target_id / "abundances.cxb"))
+
+        _cmd = ['cuffnorm']
+        _cmd.append("-o")
+        _cmd.append(str(wkdir))
+        _cmd.append("-p")
+        _cmd.append(self.meta_dic["cpu"])
+        _cmd.append("--library-type")
+        _cmd.append(self.meta_dic["library_type"])
+        _cmd.append("--library-norm-method")
+        _cmd.append("geometric")
+        _cmd.append("--output-format")
+        _cmd.append("simple-table")
+        _cmd.append("--labels")
+        _cmd.append(",".join(target_id_s))
+        _cmd.append(self.meta_dic["gtf"])
+        _cmd.extend(cxb_s)
+
+        outfh = self.cuffnorm_sh.open('w')
+        outfh.write("{0}\n".format(" ".join(_cmd)))
+        outfh.close()
+
+
 
     def make_cuffdiff_sh(self):
         outfh = self.cuffdiff_sh.open("w")
@@ -353,22 +455,22 @@ class Demux2Ready:
             _cmd.append("-o")
             _cmd.append(str(wkdir))
             _cmd.append("-p")
-            _cmd.append("[CPU]")
+            _cmd.append(self.meta_dic["cpu"])
             _cmd.append("--library-type")
-            _cmd.append("fr-unstranded")
+            _cmd.append(self.meta_dic["library_type"])
+            _cmd.append("--mask-file")
+            _cmd.append(self.meta_dic["mask_gtf"])
             _cmd.append("--dispersion-method")
             _cmd.append("pooled")
             _cmd.append("--library-norm-method")
-            _cmd.append("classic-fpkm")
-            _cmd.append("-M")
-            _cmd.append("[MASKGTF]")
+            _cmd.append("geometric")
             _cmd.append("-L")
             cont_group_id = group_dic["cont"]["group_id"]
             case_group_id = group_dic["case"]["group_id"]
             _cmd.append(f"{cont_group_id},{case_group_id}")
-            _cmd.append("[GTF]")
-            cont_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["cont"]["sample_s"]])
-            case_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["case"]["sample_s"]])
+            _cmd.append(self.meta_dic["gtf"])
+            cont_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["cont"]["sample_s"]])
+            case_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["case"]["sample_s"]])
             _cmd.append(cont_bam)
             _cmd.append(case_bam)
             outfh.write("{0}\n".format(' '.join(_cmd)))
@@ -388,26 +490,33 @@ def main(args):
 
     elif args.mode in ['mksh_fastp']:
         obj.make_fastp_sh()
-    elif args.mode in ['mksh_fastp_clean']:
-        obj.cleanpath.mkdir(exist_ok=True)
-        obj.make_fastp_clean_sh()
     elif args.mode in ['parse_fastp']:
         obj.parse_fastp()
-
-    elif args.mode in ['mksh_tophat']:
-        obj.tophatpath.mkdir(exist_ok=True)
-        obj.make_tophat_sh()
-    elif args.mode in ['mksh_cufflinks']:
-        obj.cufflinkspath.mkdir(exist_ok=True)
-        obj.make_cufflinks_sh()
-    elif args.mode in ['mksh_cuffdiff']:
-        obj.cuffdiffpath.mkdir(exist_ok=True)
-        obj.make_cuffdiff_sh()
 
     elif args.mode in ['mkconf_nfcore_rnaseq']:
         obj.make_nfcore_rnaseq_samplesheet()
     elif args.mode in ['samplefile']:
         obj.make_samplefile()
+
+    elif args.mode in ['mksh_fastp_clean']:
+        obj.cleanpath.mkdir(exist_ok=True)
+        obj.make_fastp_clean_sh()
+    elif args.mode in ['mksh_tophat']:
+        obj.tophatpath.mkdir(exist_ok=True)
+        obj.make_tophat_sh()
+    elif args.mode in ['mksh_cuffquant']:
+        obj.cuffquantpath.mkdir(exist_ok=True)
+        obj.make_cuffquant_sh()
+    elif args.mode in ['mksh_cufflinks']:
+        obj.cufflinkspath.mkdir(exist_ok=True)
+        obj.make_cufflinks_sh()
+    elif args.mode in ['mksh_cuffnorm']:
+        obj.cuffnormpath.mkdir(exist_ok=True)
+        obj.make_cuffnorm_sh()
+    elif args.mode in ['mksh_cuffdiff']:
+        obj.cuffdiffpath.mkdir(exist_ok=True)
+        obj.make_cuffdiff_sh()
+
 
 
 
@@ -418,9 +527,12 @@ if __name__=='__main__':
     parser.add_argument('--conf-fn', default='./example/config.tsv')
     parser.add_argument('--work-dir', default='./')
     parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
-                                           'mksh_fastp', 'mksh_fastp_clean', 'parse_fastp',
-                                           'mksh_tophat', 'mksh_cufflinks', 'mksh_cuffdiff',
-                                           'mkconf_nfcore_rnaseq', 'samplefile'),
+                                           'mksh_fastp', 'parse_fastp',
+                                           'mkconf_nfcore_rnaseq', 'samplefile',
+                                           'mksh_fastp_clean',
+                                           'mksh_tophat', 'mksh_cuffquant',
+                                           'mksh_cufflinks', 'mksh_cuffnorm',
+                                           'mksh_cuffdiff'),
                         default='mksh_d2r')
     args = parser.parse_args()
     main(args)
