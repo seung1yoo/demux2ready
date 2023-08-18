@@ -410,7 +410,7 @@ class Demux2Ready:
             _cmd.append(self.meta_dic["mask_gtf"])
             _cmd.append("-G")
             _cmd.append(self.meta_dic["gtf"])
-            _cmd.append(str(self.cuffquantpath / target_id / "abundances.cxb"))
+            _cmd.append(str(self.tophatpath / target_id / "accepted_hits.bam"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
