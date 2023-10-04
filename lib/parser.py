@@ -48,9 +48,15 @@ class Fastp:
             items.append(round(float(info_dic["summary"][tag]["q20_rate"])*100, 3))
             items.append(round(float(info_dic["summary"][tag]["q30_rate"])*100, 3))
             items.append(round(float(info_dic["duplication"]["rate"])*100, 3))
-            items.append(info_dic["insert_size"]["peak"])
+            if "insert_size" in info_dic:
+                items.append(info_dic["insert_size"]["peak"])
+            else:
+                items.append("-")
             items.append(info_dic["summary"][tag]["read1_mean_length"])
-            items.append(info_dic["summary"][tag]["read2_mean_length"])
+            if "read2_mean_length" in info_dic["summary"][tag]:
+                items.append(info_dic["summary"][tag]["read2_mean_length"])
+            else:
+                items.append("-")
             items.append(round(int(info_dic["filtering_result"]["passed_filter_reads"])/float(total_reads)*100, 3))
             outfh.write("{0}\n".format("\t".join([str(x) for x in items])))
         outfh.close()
@@ -635,6 +641,7 @@ def main(args):
         fastp.find_json_path(args.target_dir)
         if args.target_dir in ['cleanfastq']:
             fastp.write_summary_tsv("after_filtering")
+            #fastp.write_summary_tsv("before_filtering")
         else:
             fastp.write_summary_tsv("before_filtering")
 

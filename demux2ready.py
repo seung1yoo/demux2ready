@@ -37,8 +37,9 @@ class Demux2Ready:
         self.nfcore_rnaseq_samplesheet = Path(work_dir) / "nfcore_rnaseq_samplesheet.csv"
 
         # make fastp shell script for read pre-processing
-        self.fastp_clean_sh = Path(work_dir) / "fastp_clean.sh"
         self.cleanpath = Path(work_dir) / "cleanfastq"
+        self.fastp_clean_sh = Path(work_dir) / "fastp_clean.sh"
+        self.cutadapt_sh = Path(work_dir) / "cutadapt.sh"
         # make tophat shell script
         self.tophat_sh = Path(work_dir) / "tophat.sh"
         self.tophatpath = Path(work_dir) / "tophat"
@@ -271,6 +272,8 @@ class Demux2Ready:
         outfh = self.fastp_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['fastp']
+            _cmd.append('--thread')
+            _cmd.append(self.meta_dic["cpu"])
             _cmd.append('--in1')
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--in2')
@@ -282,20 +285,43 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_cutadapt_sh(self):
+        outfh = self.cutadapt_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['cutadapt']
+            _cmd.append('--cores')
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append('-u')
+            _cmd.append('-119') # 151 PE to 32 PE
+            _cmd.append('-U')
+            _cmd.append('-119') # 151 PE to 32 PE
+            _cmd.append('-o')
+            _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append('-p')
+            _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            _cmd.append(str(read_dic['r1']))
+            _cmd.append(str(read_dic['r2']))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
     def make_fastp_clean_sh(self):
         outfh = self.fastp_clean_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['fastp']
+            _cmd.append('--thread')
+            _cmd.append(self.meta_dic["cpu"])
             _cmd.append('--in1')
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--out1')
             _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
-            #_cmd.append('--trim_tail1 100') # optional 151PE to 51PE
+            #_cmd.append('--trim_tail1 100') # optional 151PE to 51PE for FFPE
+            #_cmd.append('--trim_tail1 119') # optional 151PE to 32PE for FFPE
             _cmd.append('--in2')
             _cmd.append(str(read_dic['r2']))
             _cmd.append('--out2')
             _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
-            #_cmd.append('--trim_tail2 100') # optional 151PE to 51PE
+            #_cmd.append('--trim_tail2 100') # optional 151PE to 51PE for FFPE
+            #_cmd.append('--trim_tail2 119') # optional 151PE to 32PE for FFPE
             _cmd.append('--json')
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.json"))
             _cmd.append('--html')
@@ -472,11 +498,11 @@ class Demux2Ready:
             _cmd.append(f"{cont_group_id},{case_group_id}")
             _cmd.append(self.meta_dic["gtf"])
 
-            #cont_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["cont"]["sample_s"]])
-            #case_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["case"]["sample_s"]])
+            cont_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["cont"]["sample_s"]])
+            case_bam = ','.join([str(self.cuffquantpath / x / "abundances.cxb") for x in group_dic["case"]["sample_s"]])
 
-            cont_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["cont"]["sample_s"]])
-            case_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["case"]["sample_s"]])
+            #cont_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["cont"]["sample_s"]])
+            #case_bam = ','.join([str(self.tophatpath / x / "accepted_hits.bam") for x in group_dic["case"]["sample_s"]])
             _cmd.append(cont_bam)
             _cmd.append(case_bam)
             outfh.write("{0}\n".format(' '.join(_cmd)))
@@ -504,6 +530,9 @@ def main(args):
     elif args.mode in ['samplefile']:
         obj.make_samplefile()
 
+    elif args.mode in ['mksh_cutadapt']:
+        obj.cleanpath.mkdir(exist_ok=True)
+        obj.make_cutadapt_sh()
     elif args.mode in ['mksh_fastp_clean']:
         obj.cleanpath.mkdir(exist_ok=True)
         obj.make_fastp_clean_sh()
@@ -536,6 +565,7 @@ if __name__=='__main__':
                                            'mksh_fastp', 'parse_fastp',
                                            'mkconf_nfcore_rnaseq', 'samplefile',
                                            'mksh_fastp_clean',
+                                           'mksh_cutadapt',
                                            'mksh_tophat', 'mksh_cuffquant',
                                            'mksh_cufflinks', 'mksh_cuffnorm',
                                            'mksh_cuffdiff'),
