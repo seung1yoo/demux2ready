@@ -530,7 +530,7 @@ def main(args):
     elif args.mode in ['samplefile']:
         obj.make_samplefile()
 
-    elif args.mode in ['mksh_cutadapt']:
+    elif args.mode in ['mksh_cutadapt']: # read length trimming
         obj.cleanpath.mkdir(exist_ok=True)
         obj.make_cutadapt_sh()
     elif args.mode in ['mksh_fastp_clean']:
