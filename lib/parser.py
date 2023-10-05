@@ -189,10 +189,11 @@ class Tophat:
 
 
 class Cufflinks:
-    def __init__(self, wkdir, outprefix, gene2desc):
+    def __init__(self, wkdir, outprefix, gene2desc, tran2desc):
         self.wkdir = Path(wkdir)
         self.sample_names = list()
         self.gene2desc_fp = Path(gene2desc)
+        self.tran2desc_fp = Path(tran2desc)
 
         # setting vars for annotation
         self.header_names = list()
@@ -212,15 +213,19 @@ class Cufflinks:
         self.gene_fpkm_dic = dict()
         self.gene_stat_dic = dict()
         self.find_fpkm_tracking_path("genes", "cufflinks")
-        self.parse_fpkm_tracking_path("genes")
         if self.gene2desc_fp.is_file():
-            self.anno_gene2desc("BIOTYPE", "biotype")
-            self.anno_gene2desc("SYMBOL", "symbol")
-            self.anno_gene2desc("DESCRIPTION", "description")
+            self.anno_xxxx2desc("genes", self.gene2desc_fp, "BIOTYPE", "biotype")
+            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
+            self.anno_xxxx2desc("genes", self.gene2desc_fp, "SYMBOL", "symbol")
+            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
+            self.anno_xxxx2desc("genes", self.gene2desc_fp, "DESCRIPTION", "description")
+            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
+        self.parse_fpkm_tracking_path("genes")
+        logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
         self.write_fpkm_tsv("genes", 0.0, self.wkdir / f"{outprefix}.genes.all.fpkm.tsv")
         self.write_fpkm_tsv("genes", 0.3, self.wkdir / f"{outprefix}.genes.exp.fpkm.tsv")
-        self.write_stat_exp("genes", self.wkdir / f"{outprefix}.genes.stat.expressed.tsv")
-        self.write_stat_coexp("genes", self.wkdir / f"{outprefix}.genes.stat.co-expressed.tsv")
+        self.write_stat_exp("genes", self.wkdir / f"{outprefix}.genes.stat.expressed.tsv") # only protein coding
+        self.write_stat_coexp("genes", self.wkdir / f"{outprefix}.genes.stat.co-expressed.tsv") # only protein coding
 
         # parse isoforms.fpkm_tracking files | cufflinks with -G option
         self.tran_path_dic = dict()
@@ -228,19 +233,25 @@ class Cufflinks:
         self.tran_fpkm_dic = dict()
         self.tran_stat_dic = dict()
         self.find_fpkm_tracking_path("isoforms", "cufflinks")
+        if self.tran2desc_fp.is_file():
+            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "BIOTYPE", "biotype")
+            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "SYMBOL", "symbol")
+            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "DESCRIPTION", "description")
         self.parse_fpkm_tracking_path("isoforms")
         self.write_fpkm_tsv("isoforms", 0.0, self.wkdir / f"{outprefix}.trans.all.fpkm.tsv")
         self.write_fpkm_tsv("isoforms", 0.3, self.wkdir / f"{outprefix}.trans.exp.fpkm.tsv")
-        self.write_stat_exp("isoforms", self.wkdir / f"{outprefix}.trans.stat.expressed.tsv")
-        self.write_stat_coexp("isoforms", self.wkdir / f"{outprefix}.trans.stat.co-expressed.tsv")
+        self.write_stat_exp("isoforms", self.wkdir / f"{outprefix}.trans.stat.expressed.tsv") # only protein coding
+        self.write_stat_coexp("isoforms", self.wkdir / f"{outprefix}.trans.stat.co-expressed.tsv") # only protein coding
 
     def write_stat_coexp(self, molecule_type, outfp):
         if molecule_type in ["genes"]:
             _stat_dic = self.gene_stat_dic
             _fpkm_dic = self.gene_fpkm_dic
+            _info_dic = self.gene_info_dic
         elif molecule_type in ["isoforms"]:
             _stat_dic = self.tran_stat_dic
             _fpkm_dic = self.tran_fpkm_dic
+            _info_dic = self.tran_info_dic
 
         logging.info(f"writing STAT of Co-Expressed gene table... {str(outfp)}")
 
@@ -252,6 +263,10 @@ class Cufflinks:
                 _coexp_dic.setdefault(i, {}).setdefault(_stat_col, 0)
 
         for _id, info_dic in _fpkm_dic.items():
+
+            if _info_dic[_id]['biotype'] not in ['protein_coding']:
+                continue # counting only protein_coding
+
             _fpkm_s = list()
             for sample_name in self.sample_names:
                 _fpkm_s.append(float(info_dic[sample_name]))
@@ -355,13 +370,37 @@ class Cufflinks:
                 self.gene_info_dic[_id].setdefault(key, items[idx_dic[colname]])
         return 1
 
+    def anno_xxxx2desc(self, molecule_type, xxxx2desc_fp, colname, key):
+        if molecule_type in ["genes"]:
+            _info_dic = self.gene_info_dic
+        elif molecule_type in ["isoforms"]:
+            _info_dic = self.tran_info_dic
+
+        for line in xxxx2desc_fp.open():
+            items = line.rstrip('\n').split('\t')
+            if items[0] in ["ID"]:
+                idx_dic = dict()
+                for idx, item in enumerate(items):
+                    idx_dic.setdefault(item, idx)
+                continue
+            _id = items[idx_dic["ID"]]
+            _info_dic.setdefault(_id, {}).setdefault(key, items[idx_dic[colname]])
+
+        if molecule_type in ["genes"]:
+            self.gene_info_dic = _info_dic
+        elif molecule_type in ["isoforms"]:
+            self.tran_info_dic = _info_dic
+
+        return 1
+
     def parse_fpkm_tracking_path(self, molecule_type):
         if molecule_type in ["genes"]:
             _path_dic = self.gene_path_dic
+            _info_dic = self.gene_info_dic
         elif molecule_type in ["isoforms"]:
             _path_dic = self.tran_path_dic
+            _info_dic = self.tran_info_dic
 
-        _info_dic = dict()
         _fpkm_dic = dict()
         _stat_dic = dict()
         for sample_name, fpkm_tracking_path in _path_dic.items():
@@ -386,15 +425,15 @@ class Cufflinks:
                 _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=100", [])
                 _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=1000", [])
 
-                if float(_fpkm) >= 1000:
+                if float(_fpkm) >= 1000 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
                     _stat_dic[sample_name]["fpkm>=1000"].append(_id)
-                if float(_fpkm) >= 100:
+                if float(_fpkm) >= 100 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
                     _stat_dic[sample_name]["fpkm>=100"].append(_id)
-                if float(_fpkm) >= 10:
+                if float(_fpkm) >= 10 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
                     _stat_dic[sample_name]["fpkm>=10"].append(_id)
-                if float(_fpkm) >= 1.0:
+                if float(_fpkm) >= 1.0 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
                     _stat_dic[sample_name]["fpkm>=1"].append(_id)
-                if float(_fpkm) >= 0.3:
+                if float(_fpkm) >= 0.3 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
                     _stat_dic[sample_name]["fpkm>=0.3"].append(_id)
 
 
@@ -677,7 +716,7 @@ def main(args):
 
     elif args.biotool in ['cufflinks']:
 
-        cufflinks = Cufflinks(args.wkdir, args.outprefix, args.gene2desc)
+        cufflinks = Cufflinks(args.wkdir, args.outprefix, args.gene2desc, args.tran2desc)
 
     elif args.biotool in ['cuffdiff']:
 
@@ -716,6 +755,7 @@ if __name__=='__main__':
     subparser = subparsers.add_parser("cufflinks")
     subparser.add_argument("--outprefix", default="MultiParser.Cufflinks")
     subparser.add_argument("--gene2desc", default="anno.gene2desc.tsv")
+    subparser.add_argument("--tran2desc", default="anno.transcript2desc.tsv")
 
     subparser = subparsers.add_parser("cuffdiff")
     subparser.add_argument("--outprefix", default="MultiParser.Cuffdiff")
