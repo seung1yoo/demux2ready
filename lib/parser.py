@@ -66,6 +66,7 @@ class Fastp:
 class Tophat:
     def __init__(self, wkdir, outprefix):
         self.wkdir = Path(wkdir)
+        self.input_read_type = None
 
         # parse align_summary.txt files
         self.align_summary_path_dic = dict()
@@ -97,10 +98,22 @@ class Tophat:
             items.append(info_dic["total"]["multimap"])
             items.append(round((info_dic["total"]["multimap"]/(info_dic["total"]["mapped"]*1.0))*100, 2))
             items.append(info_dic["total"]["aligned-pair"])
-            items.append(round((info_dic["total"]["aligned-pair"]/(info_dic["total"]["mapped"]*1.0))*100, 2))
-            items.append(round((info_dic["total"]["aligned-pair-multi"]/(info_dic["total"]["aligned-pair"]*1.0))*100, 2))
-            items.append(round((info_dic["total"]["aligned-pair-discordant"]/(info_dic["total"]["aligned-pair"]*1.0))*100, 2))
-            items.append(round(info_dic["total"]["aligned-pair-concordant-rate"], 2))
+            if self.input_read_type in ["paired-end"]:
+                items.append(round((info_dic["total"]["aligned-pair"]/(info_dic["total"]["mapped"]*1.0))*100, 2))
+            else:
+                items.append(0)
+            if self.input_read_type in ["paired-end"]:
+                items.append(round((info_dic["total"]["aligned-pair-multi"]/(info_dic["total"]["aligned-pair"]*1.0))*100, 2))
+            else:
+                items.append(0)
+            if self.input_read_type in ["paired-end"]:
+                items.append(round((info_dic["total"]["aligned-pair-discordant"]/(info_dic["total"]["aligned-pair"]*1.0))*100, 2))
+            else:
+                items.append(0)
+            if self.input_read_type in ["paired-end"]:
+                items.append(round(info_dic["total"]["aligned-pair-concordant-rate"], 2))
+            else:
+                items.append(0)
             logging.info(items)
             outfh.write("{0}\n".format('\t'.join([str(x) for x in items])))
         outfh.close()
@@ -134,7 +147,9 @@ class Tophat:
             _dic.setdefault("total", {}).setdefault("aligned-pair-multi", 0)
             _dic.setdefault("total", {}).setdefault("aligned-pair-discordant", 0)
             _dic.setdefault("total", {}).setdefault("aligned-pair-concordant-rate", 0.0)
-            if len(metrix) in [13]:
+            if len(metrix) in [13]: # align_summary for paired-end reads
+                self.input_read_type = "paired-end"
+
                 _dic["r1"]["input"] = int(metrix[1][2])
                 _dic["r1"]["mapped"] = int(metrix[2][2])
                 _dic["r1"]["multimap"] = int(metrix[3][2])
@@ -148,7 +163,17 @@ class Tophat:
                 _dic["total"]["aligned-pair-multi"] = int(metrix[10][2])*2
                 _dic["total"]["aligned-pair-discordant"] = int(metrix[11][0])*2
                 _dic["total"]["aligned-pair-concordant-rate"] = float(metrix[12][0].replace("%", ""))
+            elif len(metrix) in [5]: # align_summary for single-end reads
+                self.input_read_type = "single-end"
+
+                _dic["r1"]["input"] = int(metrix[1][2])
+                _dic["r1"]["mapped"] = int(metrix[2][2])
+                _dic["r1"]["multimap"] = int(metrix[3][2])
+                _dic["total"]["input"] = _dic["r1"]["input"]
+                _dic["total"]["mapped"] = _dic["r1"]["mapped"]
+                _dic["total"]["multimap"] = _dic["r1"]["multimap"]
             else:
+                logging.critical(f"len(metrix) is {len(metrix)}")
                 logging.critical("It is need to dev for this.")
 
             self.align_summary_info_dic.setdefault(sample_name, _dic)
