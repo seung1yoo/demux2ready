@@ -215,13 +215,9 @@ class Cufflinks:
         self.find_fpkm_tracking_path("genes", "cufflinks")
         if self.gene2desc_fp.is_file():
             self.anno_xxxx2desc("genes", self.gene2desc_fp, "BIOTYPE", "biotype")
-            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
             self.anno_xxxx2desc("genes", self.gene2desc_fp, "SYMBOL", "symbol")
-            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
             self.anno_xxxx2desc("genes", self.gene2desc_fp, "DESCRIPTION", "description")
-            logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
         self.parse_fpkm_tracking_path("genes")
-        logging.debug(f"{len(self.gene_info_dic['ENSRNOG00000062178'].keys())}")
         self.write_fpkm_tsv("genes", 0.0, self.wkdir / f"{outprefix}.genes.all.fpkm.tsv")
         self.write_fpkm_tsv("genes", 0.3, self.wkdir / f"{outprefix}.genes.exp.fpkm.tsv")
         self.write_stat_exp("genes", self.wkdir / f"{outprefix}.genes.stat.expressed.tsv") # only protein coding
