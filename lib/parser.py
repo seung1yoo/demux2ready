@@ -701,7 +701,7 @@ def main(args):
         fastp.find_json_path(args.target_dir)
         if args.target_dir in ['cleanfastq']:
             fastp.write_summary_tsv("after_filtering")
-            #fastp.write_summary_tsv("before_filtering")
+            #fastp.write_summary_tsv("before_filtering") # test
         else:
             fastp.write_summary_tsv("before_filtering")
 
