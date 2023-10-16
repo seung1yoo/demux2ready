@@ -21,8 +21,8 @@ class Fastp:
             self.json_path_dic.setdefault(sample_name, json.load(json_path.open("r")))
         return 1
 
-    def write_summary_tsv(self, tag):
-        outfp = self.wkdir / f"{self.outprefix}.tsv"
+    def write_summary_tsv(self, tag, target_dir):
+        outfp = self.wkdir / f"{self.outprefix}.{target_dir}.tsv"
         logging.info(f"writing fastp summary table... {str(outfp)}")
         outfh = outfp.open("w")
         headers = ["Samples"]
@@ -38,7 +38,7 @@ class Fastp:
         headers.append("R2MeanLen")
         headers.append("GoodReadRate")
         outfh.write('{0}\n'.format("\t".join(headers)))
-        for sample_name, info_dic in self.json_path_dic.items():
+        for sample_name, info_dic in sorted(self.json_path_dic.items()):
             items = [sample_name]
             total_reads = info_dic["summary"][tag]["total_reads"]
             items.append(total_reads)
@@ -212,32 +212,13 @@ class Cufflinks:
         self.gene_info_dic = dict()
         self.gene_fpkm_dic = dict()
         self.gene_stat_dic = dict()
-        self.find_fpkm_tracking_path("genes", "cufflinks")
-        if self.gene2desc_fp.is_file():
-            self.anno_xxxx2desc("genes", self.gene2desc_fp, "BIOTYPE", "biotype")
-            self.anno_xxxx2desc("genes", self.gene2desc_fp, "SYMBOL", "symbol")
-            self.anno_xxxx2desc("genes", self.gene2desc_fp, "DESCRIPTION", "description")
-        self.parse_fpkm_tracking_path("genes")
-        self.write_fpkm_tsv("genes", 0.0, self.wkdir / f"{outprefix}.genes.all.fpkm.tsv")
-        self.write_fpkm_tsv("genes", 0.3, self.wkdir / f"{outprefix}.genes.exp.fpkm.tsv")
-        self.write_stat_exp("genes", self.wkdir / f"{outprefix}.genes.stat.expressed.tsv") # only protein coding
-        self.write_stat_coexp("genes", self.wkdir / f"{outprefix}.genes.stat.co-expressed.tsv") # only protein coding
+
 
         # parse isoforms.fpkm_tracking files | cufflinks with -G option
         self.tran_path_dic = dict()
         self.tran_info_dic = dict()
         self.tran_fpkm_dic = dict()
         self.tran_stat_dic = dict()
-        self.find_fpkm_tracking_path("isoforms", "cufflinks")
-        if self.tran2desc_fp.is_file():
-            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "BIOTYPE", "biotype")
-            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "SYMBOL", "symbol")
-            self.anno_xxxx2desc("isoforms", self.tran2desc_fp, "DESCRIPTION", "description")
-        self.parse_fpkm_tracking_path("isoforms")
-        self.write_fpkm_tsv("isoforms", 0.0, self.wkdir / f"{outprefix}.trans.all.fpkm.tsv")
-        self.write_fpkm_tsv("isoforms", 0.3, self.wkdir / f"{outprefix}.trans.exp.fpkm.tsv")
-        self.write_stat_exp("isoforms", self.wkdir / f"{outprefix}.trans.stat.expressed.tsv") # only protein coding
-        self.write_stat_coexp("isoforms", self.wkdir / f"{outprefix}.trans.stat.co-expressed.tsv") # only protein coding
 
     def write_stat_coexp(self, molecule_type, outfp):
         if molecule_type in ["genes"]:
@@ -458,6 +439,98 @@ class Cufflinks:
         self.sample_names.sort()
 
         return 1
+
+
+class Cuffnorm(Cufflinks):
+
+    def get_sample_names_from_fpkm_table(self, fp):
+
+        for line in fp.open():
+            items = line.rstrip('\n').split('\t')
+            if items[0] in ["tracking_id"]:
+                _sample_names = items[1:]
+            else:
+                break
+
+        for _sample_name in _sample_names:
+            sample_name = _sample_name.rstrip("_0")
+            if sample_name not in self.sample_names:
+                self.sample_names.append(sample_name)
+
+        self.sample_names.sort()
+
+        return 1
+
+    def find_fpkm_table_path(self, molecule_type, cuffnorm_dir):
+
+        fpkm_table_path = Path(cuffnorm_dir) / f"{molecule_type}.fpkm_table"
+        self.get_sample_names_from_fpkm_table(fpkm_table_path)
+        logging.info(f"Found samples {self.sample_names} in {str(fpkm_table_path)}")
+
+        if molecule_type in ["genes"]:
+            for sample_name in self.sample_names:
+                self.gene_path_dic.setdefault(sample_name, fpkm_table_path)
+        elif molecule_type in ["isoforms"]:
+            for sample_name in self.sample_names:
+                self.tran_path_dic.setdefault(sample_name, fpkm_table_path)
+
+        return 1
+
+    def parse_fpkm_table_path(self, molecule_type):
+        if molecule_type in ["genes"]:
+            _path_dic = self.gene_path_dic
+            _info_dic = self.gene_info_dic
+        elif molecule_type in ["isoforms"]:
+            _path_dic = self.tran_path_dic
+            _info_dic = self.tran_info_dic
+
+        _fpkm_dic = dict()
+        _stat_dic = dict()
+        for sample_name, fpkm_table_path in _path_dic.items():
+            for line in fpkm_table_path.open():
+                items = line.rstrip('\n').split('\t')
+                if items[0] in ["tracking_id"]:
+                    idx_dic = dict()
+                    for idx, item in enumerate(items):
+                        idx_dic.setdefault(item, idx)
+                    continue
+                _id = items[idx_dic["tracking_id"]]
+                _name = "-"
+                _locus = "-"
+                _fpkm = float(items[idx_dic[f"{sample_name}_0"]])
+
+                _info_dic.setdefault(_id, {}).setdefault("name", _name)
+                _info_dic.setdefault(_id, {}).setdefault("locus", _locus)
+                _fpkm_dic.setdefault(_id, {}).setdefault(sample_name, _fpkm)
+                _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=0.3", [])
+                _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=1", [])
+                _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=10", [])
+                _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=100", [])
+                _stat_dic.setdefault(sample_name, {}).setdefault("fpkm>=1000", [])
+
+                if float(_fpkm) >= 1000 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
+                    _stat_dic[sample_name]["fpkm>=1000"].append(_id)
+                if float(_fpkm) >= 100 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
+                    _stat_dic[sample_name]["fpkm>=100"].append(_id)
+                if float(_fpkm) >= 10 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
+                    _stat_dic[sample_name]["fpkm>=10"].append(_id)
+                if float(_fpkm) >= 1.0 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
+                    _stat_dic[sample_name]["fpkm>=1"].append(_id)
+                if float(_fpkm) >= 0.3 and _info_dic[_id]['biotype'] in ['protein_coding']: # counting only protein_coding
+                    _stat_dic[sample_name]["fpkm>=0.3"].append(_id)
+
+
+        if molecule_type in ["genes"]:
+            self.gene_info_dic = _info_dic
+            self.gene_fpkm_dic = _fpkm_dic
+            self.gene_stat_dic = _stat_dic
+        elif molecule_type in ["isoforms"]:
+            self.tran_info_dic = _info_dic
+            self.tran_fpkm_dic = _fpkm_dic
+            self.tran_stat_dic = _stat_dic
+
+        return 1
+
 
 class Cuffdiff:
     def __init__(self, wkdir, outprefix, log2fc_criteria, p_criteria):
@@ -700,10 +773,10 @@ def main(args):
         fastp = Fastp(args.wkdir, args.outprefix)
         fastp.find_json_path(args.target_dir)
         if args.target_dir in ['cleanfastq']:
-            fastp.write_summary_tsv("after_filtering")
-            #fastp.write_summary_tsv("before_filtering") # test
+            fastp.write_summary_tsv("after_filtering", args.target_dir)
+            #fastp.write_summary_tsv("before_filtering", args.target_dir) # test
         else:
-            fastp.write_summary_tsv("before_filtering")
+            fastp.write_summary_tsv("before_filtering", args.target_dir)
 
 
     elif args.biotool in ['tophat']:
@@ -713,6 +786,56 @@ def main(args):
     elif args.biotool in ['cufflinks']:
 
         cufflinks = Cufflinks(args.wkdir, args.outprefix, args.gene2desc, args.tran2desc)
+
+        cufflinks.find_fpkm_tracking_path("genes", "cufflinks")
+        if cufflinks.gene2desc_fp.is_file():
+            cufflinks.anno_xxxx2desc("genes", cufflinks.gene2desc_fp, "BIOTYPE", "biotype")
+            cufflinks.anno_xxxx2desc("genes", cufflinks.gene2desc_fp, "SYMBOL", "symbol")
+            cufflinks.anno_xxxx2desc("genes", cufflinks.gene2desc_fp, "DESCRIPTION", "description")
+        cufflinks.parse_fpkm_tracking_path("genes")
+        cufflinks.write_fpkm_tsv("genes", 0.0, cufflinks.wkdir / f"{args.outprefix}.genes.all.fpkm.tsv")
+        cufflinks.write_fpkm_tsv("genes", 0.3, cufflinks.wkdir / f"{args.outprefix}.genes.exp.fpkm.tsv")
+        cufflinks.write_stat_exp("genes", cufflinks.wkdir / f"{args.outprefix}.genes.stat.expressed.tsv")
+        cufflinks.write_stat_coexp("genes", cufflinks.wkdir / f"{args.outprefix}.genes.stat.co-expressed.tsv")
+
+        cufflinks.find_fpkm_tracking_path("isoforms", "cufflinks")
+        if cufflinks.tran2desc_fp.is_file():
+            cufflinks.anno_xxxx2desc("isoforms", cufflinks.tran2desc_fp, "BIOTYPE", "biotype")
+            cufflinks.anno_xxxx2desc("isoforms", cufflinks.tran2desc_fp, "SYMBOL", "symbol")
+            cufflinks.anno_xxxx2desc("isoforms", cufflinks.tran2desc_fp, "DESCRIPTION", "description")
+        cufflinks.parse_fpkm_tracking_path("isoforms")
+        cufflinks.write_fpkm_tsv("isoforms", 0.0, cufflinks.wkdir / f"{args.outprefix}.trans.all.fpkm.tsv")
+        cufflinks.write_fpkm_tsv("isoforms", 0.3, cufflinks.wkdir / f"{args.outprefix}.trans.exp.fpkm.tsv")
+        cufflinks.write_stat_exp("isoforms", cufflinks.wkdir / f"{args.outprefix}.trans.stat.expressed.tsv")
+        cufflinks.write_stat_coexp("isoforms", cufflinks.wkdir / f"{args.outprefix}.trans.stat.co-expressed.tsv")
+
+
+    elif args.biotool in ['cuffnorm']:
+
+        cuffnorm = Cuffnorm(args.wkdir, args.outprefix, args.gene2desc, args.tran2desc)
+
+        cuffnorm.find_fpkm_table_path("genes", "cuffnorm")
+        if cuffnorm.gene2desc_fp.is_file():
+            cuffnorm.anno_xxxx2desc("genes", cuffnorm.gene2desc_fp, "BIOTYPE", "biotype")
+            cuffnorm.anno_xxxx2desc("genes", cuffnorm.gene2desc_fp, "SYMBOL", "symbol")
+            cuffnorm.anno_xxxx2desc("genes", cuffnorm.gene2desc_fp, "DESCRIPTION", "description")
+        cuffnorm.parse_fpkm_table_path("genes")
+        cuffnorm.write_fpkm_tsv("genes", 0.0, cuffnorm.wkdir / f"{args.outprefix}.genes.all.fpkm.tsv")
+        cuffnorm.write_fpkm_tsv("genes", 0.3, cuffnorm.wkdir / f"{args.outprefix}.genes.exp.fpkm.tsv")
+        cuffnorm.write_stat_exp("genes", cuffnorm.wkdir / f"{args.outprefix}.genes.stat.expressed.tsv")
+        cuffnorm.write_stat_coexp("genes", cuffnorm.wkdir / f"{args.outprefix}.genes.stat.co-expressed.tsv")
+
+        cuffnorm.find_fpkm_table_path("isoforms", "cuffnorm")
+        if cuffnorm.tran2desc_fp.is_file():
+            cuffnorm.anno_xxxx2desc("isoforms", cuffnorm.tran2desc_fp, "BIOTYPE", "biotype")
+            cuffnorm.anno_xxxx2desc("isoforms", cuffnorm.tran2desc_fp, "SYMBOL", "symbol")
+            cuffnorm.anno_xxxx2desc("isoforms", cuffnorm.tran2desc_fp, "DESCRIPTION", "description")
+        cuffnorm.parse_fpkm_table_path("isoforms")
+        cuffnorm.write_fpkm_tsv("isoforms", 0.0, cuffnorm.wkdir / f"{args.outprefix}.trans.all.fpkm.tsv")
+        cuffnorm.write_fpkm_tsv("isoforms", 0.3, cuffnorm.wkdir / f"{args.outprefix}.trans.exp.fpkm.tsv")
+        cuffnorm.write_stat_exp("isoforms", cuffnorm.wkdir / f"{args.outprefix}.trans.stat.expressed.tsv")
+        cuffnorm.write_stat_coexp("isoforms", cuffnorm.wkdir / f"{args.outprefix}.trans.stat.co-expressed.tsv")
+
 
     elif args.biotool in ['cuffdiff']:
 
@@ -750,6 +873,11 @@ if __name__=='__main__':
 
     subparser = subparsers.add_parser("cufflinks")
     subparser.add_argument("--outprefix", default="MultiParser.Cufflinks")
+    subparser.add_argument("--gene2desc", default="anno.gene2desc.tsv")
+    subparser.add_argument("--tran2desc", default="anno.transcript2desc.tsv")
+
+    subparser = subparsers.add_parser("cuffnorm")
+    subparser.add_argument("--outprefix", default="MultiParser.Cuffnorm")
     subparser.add_argument("--gene2desc", default="anno.gene2desc.tsv")
     subparser.add_argument("--tran2desc", default="anno.transcript2desc.tsv")
 
