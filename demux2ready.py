@@ -7,7 +7,10 @@
 #IDMAP = ssheet_id:target_id
 #READYPATH = ready path
 
+#differentialabundance = a.k.a diffabdc
+
 from pathlib import Path
+import yaml
 import json
 import csv
 
@@ -35,6 +38,12 @@ class Demux2Ready:
         self.samplefile_path = Path(work_dir) / "sample_file"
         # make a config file for nf-core/rnaseq
         self.nfcore_rnaseq_samplesheet = Path(work_dir) / "nfcore_rnaseq_samplesheet.csv"
+        # make a config file for nf-core/differentialabundance
+        self.nfcore_diffabdc_samplesheet = Path(work_dir) / "nfcore_diffabdc_samplesheet.csv"
+        self.nfcore_diffabdc_contrasts = Path(work_dir) / "nfcore_diffabdc_contrasts.csv"
+        # make a config file for atgcu-rnaseq
+        self.atgcu_rnaseq_sample = Path(work_dir) / "atgcu_rnaseq_sample.yml"
+        self.atgcu_rnaseq_compare = Path(work_dir) / "atgcu_rnaseq_compare.yml"
 
         # make fastp shell script for read pre-processing
         self.cleanpath = Path(work_dir) / "cleanfastq"
@@ -74,8 +83,10 @@ class Demux2Ready:
         for demuxpath in self.demuxpath_s:
             for ssheet_id, target_id in self.idmap_dic['for'].items():
                 r1_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz')
+                #r1_s = demuxpath.glob(f'{ssheet_id}_S*_R1_001.fastq.gz')
                 self.add_fastq_path_s('r1', r1_s, ssheet_id)
                 r2_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz')
+                #r2_s = demuxpath.glob(f'{ssheet_id}_S*_R2_001.fastq.gz')
                 self.add_fastq_path_s('r2', r2_s, ssheet_id)
 
     def add_fastq_path_s(self, r_tag, r_s, ssheet_id):
@@ -266,6 +277,53 @@ class Demux2Ready:
             items.append(str(read_dic['r2']))
             items.append('auto')
             csvh.writerow(items)
+        outfh.close()
+
+    def make_nfcore_diffabdc_samplesheet(self):
+        outfh = self.nfcore_diffabdc_samplesheet.open("w")
+        csvh = csv.writer(outfh)
+        header = ["sample","fastq_1","fastq_2","condition","replicate"]
+        csvh.writerow(header)
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            items = [target_id]
+            items.append(str(read_dic['r1']))
+            items.append(str(read_dic['r2']))
+            items.append('[control/case/...]')
+            items.append('[1/2/3/...]')
+            csvh.writerow(items)
+        outfh.close()
+
+    def make_nfcore_diffabdc_contrasts(self):
+        outfh = self.nfcore_diffabdc_contrasts.open("w")
+        csvh = csv.writer(outfh)
+        header = ["id","variable","reference","target"]
+        csvh.writerow(header)
+        csvh.writerow(["DEG001","condition","control","case"])
+        outfh.close()
+
+    def make_atgcu_rnaseq_sample(self):
+        outfh = self.atgcu_rnaseq_sample.open("w")
+        _dic = dict()
+        _dic.setdefault("samples", {})
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _dic["samples"].setdefault(target_id, {}).setdefault("fastq_1", str(read_dic['r1']))
+            _dic["samples"].setdefault(target_id, {}).setdefault("fastq_2", str(read_dic['r2']))
+            _dic["samples"].setdefault(target_id, {}).setdefault("cuff_librarytype", "fr-unstranded")
+        yaml.dump(_dic, outfh)
+        outfh.close()
+
+    def make_atgcu_rnaseq_compare(self):
+        outfh = self.atgcu_rnaseq_compare.open("w")
+        _dic = dict()
+        _dic.setdefault("compares", {})
+        for comp_id, group_dic in self.comp_dic.items():
+            _dic["compares"].setdefault(comp_id, {}).setdefault("control", {})
+            _dic["compares"][comp_id]["control"].setdefault("group_name", group_dic["cont"]["group_id"])
+            _dic["compares"][comp_id]["control"].setdefault("samples", group_dic["cont"]["sample_s"])
+            _dic["compares"].setdefault(comp_id, {}).setdefault("treatment", {})
+            _dic["compares"][comp_id]["treatment"].setdefault("group_name", group_dic["case"]["group_id"])
+            _dic["compares"][comp_id]["treatment"].setdefault("samples", group_dic["case"]["sample_s"])
+        yaml.dump(_dic, outfh)
         outfh.close()
 
     def make_fastp_sh(self):
@@ -526,6 +584,12 @@ def main(args):
 
     elif args.mode in ['mkconf_nfcore_rnaseq']:
         obj.make_nfcore_rnaseq_samplesheet()
+    elif args.mode in ['mkconf_nfcore_differentialabundance']:
+        obj.make_nfcore_diffabdc_samplesheet()
+        obj.make_nfcore_diffabdc_contrasts()
+    elif args.mode in ['mkconf_atgcu_rnaseq']:
+        obj.make_atgcu_rnaseq_sample()
+        obj.make_atgcu_rnaseq_compare()
     elif args.mode in ['samplefile']:
         obj.make_samplefile()
 
@@ -562,7 +626,10 @@ if __name__=='__main__':
     parser.add_argument('--work-dir', default='./')
     parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
                                            'mksh_fastp', 'parse_fastp',
-                                           'mkconf_nfcore_rnaseq', 'samplefile',
+                                           'mkconf_nfcore_rnaseq',
+                                           'mkconf_nfcore_differentialabundance',
+                                           'mkconf_atgcu_rnaseq',
+                                           'samplefile',
                                            'mksh_fastp_clean',
                                            'mksh_cutadapt',
                                            'mksh_tophat', 'mksh_cuffquant',
