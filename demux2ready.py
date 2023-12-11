@@ -332,7 +332,7 @@ class Demux2Ready:
             _cmd = ['fastp']
             _cmd.append('--thread')
             _cmd.append(self.meta_dic["cpu"])
-            _cmd.append('--in1')
+            _cmd.append('-i')
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--in2')
             _cmd.append(str(read_dic['r2']))
@@ -368,7 +368,7 @@ class Demux2Ready:
             _cmd = ['fastp']
             _cmd.append('--thread')
             _cmd.append(self.meta_dic["cpu"])
-            _cmd.append('--in1')
+            _cmd.append('-i')
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--out1')
             _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
