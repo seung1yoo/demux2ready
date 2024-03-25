@@ -33,6 +33,9 @@ class Demux2Ready:
         self.fastp_sh = Path(work_dir) / "fastp.sh"
         # sum-up fastp json files into A TSV file
         self.fastp_summary = Path(work_dir) / "fastp.summary.tsv"
+        # make a shell script for fastq-screen
+        self.fastqscreenpath = Path(work_dir) / "fastq_screen"
+        self.fastqscreen_sh = Path(work_dir) / "fastq_screen.sh"
 
         # make a config file for rnaseq-pipeline
         self.samplefile_path = Path(work_dir) / "sample_file"
@@ -343,6 +346,20 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_fastq_screen_sh(self):
+        outfh = self.fastqscreen_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['fastq_screen']
+            _cmd.append('--thread')
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append(str(read_dic['r1']))
+            _cmd.append(str(read_dic['r2']))
+            _cmd.append('--outdir')
+            _cmd.append(str(self.fastqscreenpath))
+            _cmd.append('--top 100000')
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
     def make_cutadapt_sh(self):
         outfh = self.cutadapt_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -596,6 +613,9 @@ def main(args):
     elif args.mode in ['mksh_cutadapt']: # read length trimming
         obj.cleanpath.mkdir(exist_ok=True)
         obj.make_cutadapt_sh()
+    elif args.mode in ['mksh_fastq_screen']:
+        obj.fastqscreenpath.mkdir(exist_ok=True)
+        obj.make_fastq_screen_sh()
     elif args.mode in ['mksh_fastp_clean']:
         obj.cleanpath.mkdir(exist_ok=True)
         obj.make_fastp_clean_sh()
@@ -631,6 +651,7 @@ if __name__=='__main__':
                                            'mkconf_atgcu_rnaseq',
                                            'samplefile',
                                            'mksh_fastp_clean',
+                                           'mksh_fastq_screen',
                                            'mksh_cutadapt',
                                            'mksh_tophat', 'mksh_cuffquant',
                                            'mksh_cufflinks', 'mksh_cuffnorm',
