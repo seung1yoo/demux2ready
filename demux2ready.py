@@ -642,7 +642,7 @@ def main(args):
 if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--conf-fn', default='./example/config.tsv')
+    parser.add_argument('--conf-fn', default='etc/demux2ready.conf')
     parser.add_argument('--work-dir', default='./')
     parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
                                            'mksh_fastp', 'parse_fastp',
