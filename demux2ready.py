@@ -19,13 +19,6 @@ class Demux2Ready:
         Path(work_dir).mkdir(exist_ok=True)
         self.readypath = Path(work_dir) / "readyfastq"
         self.readypath.mkdir(exist_ok=True)
-        self.demuxpath_s = self.grep_demuxpath(conf_fn)
-        self.idmap_dic = self.grep_idmap(conf_fn)
-        self.fastq_dic = self.init_fastq_dic()
-        if args.mode in ['mksh_d2r','prepare']:
-            self.find_fastq()
-        self.comp_dic = self.grep_comp(conf_fn)
-        self.meta_dic = self.grep_meta(conf_fn)
 
         # make a shell script for demux2ready
         self.demux2ready_sh = Path(work_dir) / "demux2ready.sh"
@@ -48,6 +41,11 @@ class Demux2Ready:
         self.atgcu_rnaseq_sample = Path(work_dir) / "atgcu_rnaseq_sample.yml"
         self.atgcu_rnaseq_compare = Path(work_dir) / "atgcu_rnaseq_compare.yml"
 
+        # make shell script for sequencing throughtput adjust
+        self.baseadjustpath = Path(work_dir) / "baseadjustfastq"
+        self.splitpath = self.baseadjustpath / "splitfastq"
+        self.fastp_split_sh = Path(work_dir) / "fastp_split.sh"
+        self.baseadjust_sh = Path(work_dir) / "baseadjust.sh"
         # make fastp shell script for read pre-processing
         self.cleanpath = Path(work_dir) / "cleanfastq"
         self.fastp_clean_sh = Path(work_dir) / "fastp_clean.sh"
@@ -68,18 +66,47 @@ class Demux2Ready:
         self.cuffdiff_sh = Path(work_dir) / "cuffdiff.sh"
         self.cuffdiffpath = Path(work_dir) / "cuffdiff"
 
+        #
+        self.demuxpath_s = self.grep_demuxpath(conf_fn)
+        self.idmap_dic = self.grep_idmap(conf_fn)
+        self.fastq_dic = self.init_fastq_dic()
+        if args.mode in ['mksh_d2r','prepare']:
+            self.find_fastq()
+        self.comp_dic = self.grep_comp(conf_fn)
+        self.meta_dic = self.grep_meta(conf_fn)
+        self.baseadjust_dic = self.grep_baseadjust(conf_fn)
+
     def init_fastq_dic(self):
         fastq_dic = dict()
         fastq_dic.setdefault('demux', {})
         fastq_dic.setdefault('ready', {})
+        fastq_dic.setdefault('split', {})
+        fastq_dic.setdefault('baseadjust', {})
+        fastq_dic.setdefault('clean', {})
         for ssheet_id, target_id in self.idmap_dic['for'].items():
             fastq_dic['demux'].setdefault(ssheet_id, {}).setdefault('r1_s', [])
             fastq_dic['demux'].setdefault(ssheet_id, {}).setdefault('r2_s', [])
             #
-            ready_fastq_r1 = self.readypath / f"{target_id}_R1.fastq.gz"
-            ready_fastq_r2 = self.readypath / f"{target_id}_R2.fastq.gz"
-            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r1', ready_fastq_r1)
-            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r2', ready_fastq_r2)
+            _fastq_r1 = self.readypath / f"{target_id}_R1.fastq.gz"
+            _fastq_r2 = self.readypath / f"{target_id}_R2.fastq.gz"
+            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r1', _fastq_r1)
+            fastq_dic['ready'].setdefault(target_id, {}).setdefault('r2', _fastq_r2)
+            #
+            for i in range(10):
+                _fastq_r1 = self.splitpath / f"{i+1:0>4}.{target_id}_R1.fastq.gz"
+                _fastq_r2 = self.splitpath / f"{i+1:0>4}.{target_id}_R2.fastq.gz"
+                fastq_dic['split'].setdefault(target_id, {}).setdefault(i+1, {}).setdefault('r1', _fastq_r1)
+                fastq_dic['split'].setdefault(target_id, {}).setdefault(i+1, {}).setdefault('r2', _fastq_r2)
+            #
+            _fastq_r1 = self.baseadjustpath / f"{target_id}_R1.fastq.gz"
+            _fastq_r2 = self.baseadjustpath / f"{target_id}_R2.fastq.gz"
+            fastq_dic['baseadjust'].setdefault(target_id, {}).setdefault('r1', _fastq_r1)
+            fastq_dic['baseadjust'].setdefault(target_id, {}).setdefault('r2', _fastq_r2)
+            #
+            _fastq_r1 = self.cleanpath / f"{target_id}_R1.fastq.gz"
+            _fastq_r2 = self.cleanpath / f"{target_id}_R2.fastq.gz"
+            fastq_dic['clean'].setdefault(target_id, {}).setdefault('r1', _fastq_r1)
+            fastq_dic['clean'].setdefault(target_id, {}).setdefault('r2', _fastq_r2)
         return fastq_dic
 
     def find_fastq(self):
@@ -182,6 +209,19 @@ class Demux2Ready:
                 meta_dic["library_type"] = items[2]
 
         return meta_dic
+
+    def grep_baseadjust(self, conf_fn):
+        _dic = dict()
+        for line in open(conf_fn):
+            items = line.rstrip().split()
+            if not items:
+                continue
+            if not items[0] in ['BASEADJUST']:
+                continue
+            _id = items[1]
+            need_split_n = int(items[2])
+            _dic.setdefault(_id, need_split_n)
+        return _dic
 
     def make_demux2ready_sh(self):
         outfh = self.demux2ready_sh.open('w')
@@ -404,6 +444,45 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_fastp_split_sh(self):
+        outfh = self.fastp_split_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['fastp']
+            _cmd.append('--thread')
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append('-i')
+            _cmd.append(str(read_dic['r1']))
+            _cmd.append('--out1')
+            _cmd.append(str(self.splitpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append('--in2')
+            _cmd.append(str(read_dic['r2']))
+            _cmd.append('--out2')
+            _cmd.append(str(self.splitpath / f"{target_id}_R2.fastq.gz"))
+            _cmd.append('--json')
+            _cmd.append(str(self.splitpath / f"{target_id}.fastp.json"))
+            _cmd.append('--html')
+            _cmd.append(str(self.splitpath / f"{target_id}.fastp.html"))
+            _cmd.append('--split 10')
+            _cmd.append('--disable_adapter_trimming')
+            _cmd.append('--disable_trim_poly_g')
+            _cmd.append('--disable_quality_filtering')
+            _cmd.append('--disable_length_filtering')
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_baseadjust_sh(self):
+        outfh = self.baseadjust_sh.open('w')
+        for target_id, read_dic in self.fastq_dic['split'].items():
+            need_split_n = self.baseadjust_dic[target_id]
+            for r in ['r1', 'r2']:
+                _cmd = ["cat"]
+                for i in range(need_split_n):
+                    _cmd.append(str(read_dic[i+1][r]))
+                _cmd.append(">")
+                _cmd.append(str(self.fastq_dic['baseadjust'][target_id][r]))
+                outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
     def parse_fastp(self):
         fastp_dic = dict()
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -619,6 +698,11 @@ def main(args):
     elif args.mode in ['mksh_fastp_clean']:
         obj.cleanpath.mkdir(exist_ok=True)
         obj.make_fastp_clean_sh()
+    elif args.mode in ['mksh_fastp_split']:
+        obj.baseadjustpath.mkdir(exist_ok=True)
+        obj.splitpath.mkdir(exist_ok=True)
+        obj.make_fastp_split_sh()
+        obj.make_baseadjust_sh()
     elif args.mode in ['mksh_tophat']:
         obj.tophatpath.mkdir(exist_ok=True)
         obj.make_tophat_sh()
@@ -651,6 +735,7 @@ if __name__=='__main__':
                                            'mkconf_atgcu_rnaseq',
                                            'samplefile',
                                            'mksh_fastp_clean',
+                                           'mksh_fastp_split',
                                            'mksh_fastq_screen',
                                            'mksh_cutadapt',
                                            'mksh_tophat', 'mksh_cuffquant',
