@@ -6,3 +6,4 @@ fastp.sh
 fastq_screen.sh
 fastq_screen/
 readyfastq/
+etc/demux2ready.conf
