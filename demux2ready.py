@@ -13,9 +13,12 @@ from pathlib import Path
 import yaml
 import json
 import csv
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 class Demux2Ready:
-    def __init__(self, conf_fn, work_dir):
+    def __init__(self, conf_fn, work_dir, find_fastq_mode):
+        self.find_fastq_mode = find_fastq_mode
         Path(work_dir).mkdir(exist_ok=True)
         self.readypath = Path(work_dir) / "readyfastq"
         self.readypath.mkdir(exist_ok=True)
@@ -111,16 +114,27 @@ class Demux2Ready:
 
     def find_fastq(self):
         for demuxpath in self.demuxpath_s:
+            logging.debug(f"{demuxpath}")
             for ssheet_id, target_id in self.idmap_dic['for'].items():
-                r1_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz')
-                #r1_s = demuxpath.glob(f'{ssheet_id}_S*_R1_001.fastq.gz')
+                # for read
+                if self.find_fastq_mode in ['outsourcing']:
+                    r1_s = demuxpath.glob(f'{ssheet_id}_R1.fastq.gz')
+                elif self.find_fastq_mode in ['demux']:
+                    r1_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz')
+                    #r1_s = demuxpath.glob(f'{ssheet_id}_S*_R1_001.fastq.gz')
                 self.add_fastq_path_s('r1', r1_s, ssheet_id)
-                r2_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz')
-                #r2_s = demuxpath.glob(f'{ssheet_id}_S*_R2_001.fastq.gz')
+
+                # rev read
+                if self.find_fastq_mode in ['outsourcing']:
+                    r2_s = demuxpath.glob(f'{ssheet_id}_R2.fastq.gz')
+                elif self.find_fastq_mode in ['demux']:
+                    r2_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz')
+                    #r2_s = demuxpath.glob(f'{ssheet_id}_S*_R2_001.fastq.gz')
                 self.add_fastq_path_s('r2', r2_s, ssheet_id)
 
     def add_fastq_path_s(self, r_tag, r_s, ssheet_id):
         for r_path in r_s:
+            logging.debug(f"{ssheet_id}, {r_tag}, {r_path}")
             if r_tag in ['r1']:
                 if r_path not in self.fastq_dic['demux'][ssheet_id]['r1_s']:
                     self.fastq_dic['demux'][ssheet_id]['r1_s'].append(r_path)
@@ -429,18 +443,20 @@ class Demux2Ready:
             _cmd.append(str(read_dic['r1']))
             _cmd.append('--out1')
             _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
-            #_cmd.append('--trim_tail1 100') # optional 151PE to 51PE for FFPE
-            #_cmd.append('--trim_tail1 119') # optional 151PE to 32PE for FFPE
             _cmd.append('--in2')
             _cmd.append(str(read_dic['r2']))
             _cmd.append('--out2')
             _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
-            #_cmd.append('--trim_tail2 100') # optional 151PE to 51PE for FFPE
-            #_cmd.append('--trim_tail2 119') # optional 151PE to 32PE for FFPE
             _cmd.append('--json')
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.json"))
             _cmd.append('--html')
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.html"))
+            _cmd.append('--trim_tail1 50') # optional read length adjust
+            _cmd.append('--trim_tail2 50') # optional read length adjust
+            _cmd.append('--disable_adapter_trimming') # optional read length adjust
+            _cmd.append('--disable_trim_poly_g') # optional read length adjust
+            _cmd.append('--disable_quality_filtering') # optional read length adjust
+            _cmd.append('--disable_length_filtering') # optional read length adjust
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
@@ -666,7 +682,7 @@ class Demux2Ready:
 
 def main(args):
 
-    obj = Demux2Ready(args.conf_fn, args.work_dir)
+    obj = Demux2Ready(args.conf_fn, args.work_dir, args.find_fastq_mode)
 
     if args.mode in ['mksh_d2r']:
         obj.make_demux2ready_sh()
@@ -728,6 +744,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf-fn', default='etc/demux2ready.conf')
     parser.add_argument('--work-dir', default='./')
+    parser.add_argument('--find-fastq-mode', choices=('demux','outsourcing'), default='demux')
     parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
                                            'mksh_fastp', 'parse_fastp',
                                            'mkconf_nfcore_rnaseq',
