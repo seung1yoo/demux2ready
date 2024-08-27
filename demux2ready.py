@@ -9,6 +9,7 @@
 
 #differentialabundance = a.k.a diffabdc
 
+import subprocess
 from pathlib import Path
 import yaml
 import json
@@ -32,6 +33,8 @@ class Demux2Ready:
         # make a shell script for fastq-screen
         self.fastqscreenpath = Path(work_dir) / "fastq_screen"
         self.fastqscreen_sh = Path(work_dir) / "fastq_screen.sh"
+        # md5sum
+        self.md5sum_summary = Path(work_dir) / "md5sum.summary.tsv"
 
         # make a config file for rnaseq-pipeline
         self.samplefile_path = Path(work_dir) / "sample_file"
@@ -677,6 +680,14 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def generate_md5sum_summay(self, extension):
+        outfh = self.md5sum_summary.open("w")
+        for file_path in self.readypath.glob(f"**/*.{extension}"):
+            if file_path.is_file():
+                result = subprocess.run(["md5sum", str(file_path)], capture_output=True, text=True)
+                outfh.write(result.stdout)
+        outfh.close()
+        return 1
 
 
 
@@ -734,6 +745,8 @@ def main(args):
     elif args.mode in ['mksh_cuffdiff']:
         obj.cuffdiffpath.mkdir(exist_ok=True)
         obj.make_cuffdiff_sh()
+    elif args.mode in ['md5sum']:
+        obj.generate_md5sum_summay("fastq.gz")
 
 
 
@@ -745,7 +758,7 @@ if __name__=='__main__':
     parser.add_argument('--conf-fn', default='etc/demux2ready.conf')
     parser.add_argument('--work-dir', default='./')
     parser.add_argument('--find-fastq-mode', choices=('demux','outsourcing'), default='demux')
-    parser.add_argument('--mode', choices=('mksh_d2r', 'prepare',
+    parser.add_argument('--mode', choices=('mksh_d2r', 'prepare', 'md5sum',
                                            'mksh_fastp', 'parse_fastp',
                                            'mkconf_nfcore_rnaseq',
                                            'mkconf_nfcore_differentialabundance',
