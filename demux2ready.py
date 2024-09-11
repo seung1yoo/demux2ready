@@ -71,6 +71,11 @@ class Demux2Ready:
         # make cuffdiff shell script
         self.cuffdiff_sh = Path(work_dir) / "cuffdiff.sh"
         self.cuffdiffpath = Path(work_dir) / "cuffdiff"
+        # make bismark shell script
+        self.bismarkpath = Path(work_dir) / "bismark"
+        self.bismark_align_sh = Path(work_dir) / "bismark_align.sh"
+        self.bismark_dedup_sh = Path(work_dir) / "bismark_dedup.sh"
+        self.bismark_methylcall_sh = Path(work_dir) / "bismark_methylcall.sh"
 
         #
         self.demuxpath_s = self.grep_demuxpath(conf_fn)
@@ -211,6 +216,7 @@ class Demux2Ready:
         meta_dic.setdefault("bowtie2_index", "[BOWTIE2_INDEX]")
         meta_dic.setdefault("genome_fasta", "[GENOME_FASTA]")
         meta_dic.setdefault("library_type", "[LIBRARY_TYPE]")
+        meta_dic.setdefault("bismark_genome", "[BISMARK_GENOME]")
         for line in open(conf_fn):
             items = line.rstrip().split()
             if not items:
@@ -230,6 +236,8 @@ class Demux2Ready:
                 meta_dic["genome_fasta"] = items[2]
             elif key in ["LIBRARY_TYPE"]:
                 meta_dic["library_type"] = items[2]
+            elif key in ["BISMARK_GENOME"]:
+                meta_dic["bismark_genome"] = items[2]
 
         return meta_dic
 
@@ -460,12 +468,12 @@ class Demux2Ready:
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.json"))
             _cmd.append('--html')
             _cmd.append(str(self.cleanpath / f"{target_id}.fastp.html"))
-            _cmd.append('--trim_tail1 50') # optional read length adjust
-            _cmd.append('--trim_tail2 50') # optional read length adjust
-            _cmd.append('--disable_adapter_trimming') # optional read length adjust
-            _cmd.append('--disable_trim_poly_g') # optional read length adjust
-            _cmd.append('--disable_quality_filtering') # optional read length adjust
-            _cmd.append('--disable_length_filtering') # optional read length adjust
+            #_cmd.append('--trim_tail1 50') # optional read length adjust
+            #_cmd.append('--trim_tail2 50') # optional read length adjust
+            #_cmd.append('--disable_adapter_trimming') # optional read length adjust
+            #_cmd.append('--disable_trim_poly_g') # optional read length adjust
+            #_cmd.append('--disable_quality_filtering') # optional read length adjust
+            #_cmd.append('--disable_length_filtering') # optional read length adjust
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
@@ -694,6 +702,42 @@ class Demux2Ready:
                 outfh.write(result.stdout)
         outfh.close()
         return 1
+    
+    def make_bismark_align_sh(self):
+        outfh = self.bismark_align_sh.open("w")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['bismark']
+            _cmd.append("--genome")
+            _cmd.append(self.meta_dic["bismark_genome"])
+            _cmd.append("-1")
+            _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append("-2")
+            _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            _cmd.append("--bowtie2")
+            _cmd.append("--nucleotide_coverage")
+            _cmd.append("--parallel")
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append("--rg_tag")
+            _cmd.append("--rg_id")
+            _cmd.append(target_id)
+            _cmd.append("--rg_sample")
+            _cmd.append(target_id)
+            _cmd.append("--output_dir")
+            _cmd.append(str(self.bismarkpath / target_id))
+            _cmd.append("--temp_dir")
+            _cmd.append(str(self.bismarkpath / target_id / "temp"))
+            _cmd.append("--gzip")
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_bismark_dedup_sh(self):
+        outfh = self.bismark_dedup_sh.open("w")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['deduplicate_bismark']
+        outfh.close()
+
+            
+
 
 
 
@@ -710,6 +754,9 @@ def main(args):
         obj.make_fastp_sh()
     elif args.mode in ['parse_fastp']:
         obj.parse_fastp()
+
+    elif args.mode in ['md5sum']:
+        obj.generate_md5sum_summay("fastq.gz")
 
     elif args.mode in ['mkconf_nfcore_rnaseq']:
         obj.make_nfcore_rnaseq_samplesheet()
@@ -751,8 +798,11 @@ def main(args):
     elif args.mode in ['mksh_cuffdiff']:
         obj.cuffdiffpath.mkdir(exist_ok=True)
         obj.make_cuffdiff_sh()
-    elif args.mode in ['md5sum']:
-        obj.generate_md5sum_summay("fastq.gz")
+    elif args.mode in ['mksh_bismark']:
+        obj.bismarkpath.mkdir(exist_ok=True)
+        obj.make_bismark_align_sh()
+        #obj.make_bismark_dedup_sh()
+        #obj.make_bismark_methylcall_sh()
 
 
 
@@ -776,7 +826,8 @@ if __name__=='__main__':
                                            'mksh_cutadapt',
                                            'mksh_tophat', 'mksh_cuffquant',
                                            'mksh_cufflinks', 'mksh_cuffnorm',
-                                           'mksh_cuffdiff'),
+                                           'mksh_cuffdiff',
+                                           'mksh_bismark'),
                         default='mksh_d2r')
     args = parser.parse_args()
     main(args)
