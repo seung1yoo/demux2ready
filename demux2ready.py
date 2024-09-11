@@ -121,18 +121,24 @@ class Demux2Ready:
             for ssheet_id, target_id in self.idmap_dic['for'].items():
                 # for read
                 if self.find_fastq_mode in ['outsourcing']:
-                    r1_s = demuxpath.glob(f'{ssheet_id}_R1.fastq.gz')
+                    r1_s = list(demuxpath.rglob(f'{ssheet_id}_R1.fastq.gz'))
+                    r1_s.extend(list(demuxpath.rglob(f'{ssheet_id}_R1.fq.gz')))
+                    r1_s.extend(list(demuxpath.rglob(f'{ssheet_id}_1.fastq.gz')))
+                    r1_s.extend(list(demuxpath.rglob(f'{ssheet_id}_1.fq.gz')))
                 elif self.find_fastq_mode in ['demux']:
-                    r1_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz')
-                    #r1_s = demuxpath.glob(f'{ssheet_id}_S*_R1_001.fastq.gz')
+                    r1_s = list(demuxpath.rglob(f'{ssheet_id}_S*_L*_R1_001.fastq.gz'))
+                    r1_s.extend(list(demuxpath.rglob(f'{ssheet_id}_S*_R1_001.fastq.gz')))
                 self.add_fastq_path_s('r1', r1_s, ssheet_id)
 
                 # rev read
                 if self.find_fastq_mode in ['outsourcing']:
-                    r2_s = demuxpath.glob(f'{ssheet_id}_R2.fastq.gz')
+                    r2_s = list(demuxpath.rglob(f'{ssheet_id}_R2.fastq.gz'))
+                    r2_s.extend(list(demuxpath.rglob(f'{ssheet_id}_R2.fq.gz')))
+                    r2_s.extend(list(demuxpath.rglob(f'{ssheet_id}_2.fastq.gz')))
+                    r2_s.extend(list(demuxpath.rglob(f'{ssheet_id}_2.fq.gz')))
                 elif self.find_fastq_mode in ['demux']:
-                    r2_s = demuxpath.glob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz')
-                    #r2_s = demuxpath.glob(f'{ssheet_id}_S*_R2_001.fastq.gz')
+                    r2_s = list(demuxpath.rglob(f'{ssheet_id}_S*_L*_R2_001.fastq.gz'))
+                    r2_s.extend(list(demuxpath.rglob(f'{ssheet_id}_S*_R2_001.fastq.gz')))
                 self.add_fastq_path_s('r2', r2_s, ssheet_id)
 
     def add_fastq_path_s(self, r_tag, r_s, ssheet_id):
