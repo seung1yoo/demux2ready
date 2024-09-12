@@ -734,6 +734,12 @@ class Demux2Ready:
         outfh = self.bismark_dedup_sh.open("w")
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['deduplicate_bismark']
+            _cmd.append("--paired")
+            _cmd.append("--bam")
+            _cmd.append("--output_dir")
+            _cmd.append(str(self.bismarkpath / target_id))
+            _cmd.append(str(self.bismarkpath / target_id / f"{target_id}_R1_bismark_bt2_pe.bam"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
             
@@ -801,7 +807,7 @@ def main(args):
     elif args.mode in ['mksh_bismark']:
         obj.bismarkpath.mkdir(exist_ok=True)
         obj.make_bismark_align_sh()
-        #obj.make_bismark_dedup_sh()
+        obj.make_bismark_dedup_sh()
         #obj.make_bismark_methylcall_sh()
 
 
