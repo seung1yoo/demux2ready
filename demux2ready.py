@@ -73,9 +73,7 @@ class Demux2Ready:
         self.cuffdiffpath = Path(work_dir) / "cuffdiff"
         # make bismark shell script
         self.bismarkpath = Path(work_dir) / "bismark"
-        self.bismark_align_sh = Path(work_dir) / "bismark_align.sh"
-        self.bismark_dedup_sh = Path(work_dir) / "bismark_dedup.sh"
-        self.bismark_methylcall_sh = Path(work_dir) / "bismark_methylcall.sh"
+        self.bismark_sh = Path(work_dir) / "bismark.sh"
 
         #
         self.demuxpath_s = self.grep_demuxpath(conf_fn)
@@ -103,7 +101,7 @@ class Demux2Ready:
             fastq_dic['ready'].setdefault(target_id, {}).setdefault('r1', _fastq_r1)
             fastq_dic['ready'].setdefault(target_id, {}).setdefault('r2', _fastq_r2)
             #
-            for i in range(10):
+            for i in range(10): # 10 is a default value
                 _fastq_r1 = self.splitpath / f"{i+1:0>4}.{target_id}_R1.fastq.gz"
                 _fastq_r2 = self.splitpath / f"{i+1:0>4}.{target_id}_R2.fastq.gz"
                 fastq_dic['split'].setdefault(target_id, {}).setdefault(i+1, {}).setdefault('r1', _fastq_r1)
@@ -477,7 +475,7 @@ class Demux2Ready:
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
-    def make_fastp_split_sh(self):
+    def make_fastp_split_sh(self, split_n = 10): # 10 is default value. It is related to fastq_dic['split']
         outfh = self.fastp_split_sh.open('w')
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['fastp']
@@ -495,7 +493,7 @@ class Demux2Ready:
             _cmd.append(str(self.splitpath / f"{target_id}.fastp.json"))
             _cmd.append('--html')
             _cmd.append(str(self.splitpath / f"{target_id}.fastp.html"))
-            _cmd.append('--split 10')
+            _cmd.append(f'--split {split_n}')
             _cmd.append('--disable_adapter_trimming')
             _cmd.append('--disable_trim_poly_g')
             _cmd.append('--disable_quality_filtering')
@@ -704,15 +702,17 @@ class Demux2Ready:
         return 1
     
     def make_bismark_align_sh(self):
-        outfh = self.bismark_align_sh.open("w")
+        outfh = self.bismark_sh.open("w")
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['bismark']
             _cmd.append("--genome")
             _cmd.append(self.meta_dic["bismark_genome"])
             _cmd.append("-1")
-            _cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
+            _cmd.append(str(self.readypath / f"{target_id}_R1.fastq.gz"))
+            #_cmd.append(str(self.cleanpath / f"{target_id}_R1.fastq.gz"))
             _cmd.append("-2")
-            _cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
+            _cmd.append(str(self.readypath / f"{target_id}_R2.fastq.gz"))
+            #_cmd.append(str(self.cleanpath / f"{target_id}_R2.fastq.gz"))
             _cmd.append("--bowtie2")
             _cmd.append("--nucleotide_coverage")
             _cmd.append("--parallel")
@@ -723,27 +723,78 @@ class Demux2Ready:
             _cmd.append("--rg_sample")
             _cmd.append(target_id)
             _cmd.append("--output_dir")
-            _cmd.append(str(self.bismarkpath / target_id))
+            _cmd.append(str(self.bismarkpath))
             _cmd.append("--temp_dir")
-            _cmd.append(str(self.bismarkpath / target_id / "temp"))
+            _cmd.append(str(self.bismarkpath / "temp"))
             _cmd.append("--gzip")
+            _cmd.append(">")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_bismark_align.log"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
     def make_bismark_dedup_sh(self):
-        outfh = self.bismark_dedup_sh.open("w")
+        outfh = self.bismark_sh.open("a")
         for target_id, read_dic in self.fastq_dic['ready'].items():
             _cmd = ['deduplicate_bismark']
             _cmd.append("--paired")
             _cmd.append("--bam")
             _cmd.append("--output_dir")
-            _cmd.append(str(self.bismarkpath / target_id))
-            _cmd.append(str(self.bismarkpath / target_id / f"{target_id}_R1_bismark_bt2_pe.bam"))
+            _cmd.append(str(self.bismarkpath))
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.bam"))
+            _cmd.append(">")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_deduplicate_bismark.log"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_bismark_methylcall_sh(self):
+        outfh = self.bismark_sh.open("a")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['bismark_methylation_extractor']
+            _cmd.append("--paired-end")
+            _cmd.append("--no_overlap")
+            _cmd.append("--comprehensive")
+            _cmd.append("--CX_context")
+            _cmd.append("--gzip")
+            _cmd.append("--bedGraph")
+            _cmd.append("--cytosine_report")
+            _cmd.append("--report")
+            _cmd.append("--genome_folder")
+            _cmd.append(self.meta_dic["bismark_genome"])
+            _cmd.append("--output_dir")
+            _cmd.append(str(self.bismarkpath))
+            _cmd.append("--multicore")
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.bam"))
+            _cmd.append(">")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_bismark_methylation_extractor.log"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
             
+    def make_bismark_report_sh(self):
+        outfh = self.bismark_sh.open("a")
+        _cmd = ['pushd']
+        _cmd.append(str(self.bismarkpath))
+        _cmd.append('&&')
+        _cmd.append('bismark2report')
+        _cmd.append(">")
+        _cmd.append("bismark2report.log")
+        _cmd.append('&&')
+        _cmd.append('popd')
+        outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
 
+    def make_bismark_summary_sh(self):
+        outfh = self.bismark_sh.open("a")
+        _cmd = ['pushd']
+        _cmd.append(str(self.bismarkpath))
+        _cmd.append('&&')
+        _cmd.append('bismark2summary')
+        _cmd.append(">")
+        _cmd.append("bismark2summary.log")
+        _cmd.append('&&')
+        _cmd.append('popd')
+        outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
 
 
 
@@ -806,9 +857,11 @@ def main(args):
         obj.make_cuffdiff_sh()
     elif args.mode in ['mksh_bismark']:
         obj.bismarkpath.mkdir(exist_ok=True)
-        obj.make_bismark_align_sh()
+        obj.make_bismark_align_sh() # always first
         obj.make_bismark_dedup_sh()
-        #obj.make_bismark_methylcall_sh()
+        obj.make_bismark_methylcall_sh()
+        obj.make_bismark_report_sh()
+        obj.make_bismark_summary_sh()
 
 
 
