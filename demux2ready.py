@@ -215,6 +215,7 @@ class Demux2Ready:
         meta_dic.setdefault("genome_fasta", "[GENOME_FASTA]")
         meta_dic.setdefault("library_type", "[LIBRARY_TYPE]")
         meta_dic.setdefault("bismark_genome", "[BISMARK_GENOME]")
+        meta_dic.setdefault("interval_list", "[INTERVAL_LIST]")
         for line in open(conf_fn):
             items = line.rstrip().split()
             if not items:
@@ -236,7 +237,10 @@ class Demux2Ready:
                 meta_dic["library_type"] = items[2]
             elif key in ["BISMARK_GENOME"]:
                 meta_dic["bismark_genome"] = items[2]
-
+            elif key in ["INTERVAL_LIST"]:
+                meta_dic["interval_list"] = items[2]
+            elif key in ["TARGET_BED"]:
+                meta_dic["target_bed"] = items[2]
         return meta_dic
 
     def grep_baseadjust(self, conf_fn):
@@ -743,7 +747,7 @@ class Demux2Ready:
             _cmd.append(str(self.bismarkpath / f"{target_id}_deduplicate_bismark.log"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
-
+    
     def make_bismark_methylcall_sh(self):
         outfh = self.bismark_sh.open("a")
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -794,7 +798,52 @@ class Demux2Ready:
         outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
 
+    def make_bismark_hsmetrics_sh(self):
+        outfh = self.bismark_sh.open("a")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['picard']
+            _cmd.append("CollectHsMetrics")
+            _cmd.append("--INPUT")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.bam"))
+            _cmd.append("--OUTPUT")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.bam.hsmetrics.txt"))
+            _cmd.append("--REFERENCE_SEQUENCE")
+            _cmd.append(self.meta_dic["genome_fasta"])
+            _cmd.append("--BAIT_INTERVALS")
+            _cmd.append(self.meta_dic["interval_list"])
+            _cmd.append("--TARGET_INTERVALS")
+            _cmd.append(self.meta_dic["interval_list"])
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
 
+    def make_bismark_sort_sh(self):
+        outfh = self.bismark_sh.open("a")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['samtools']
+            _cmd.append("sort")
+            _cmd.append("-@")
+            _cmd.append(self.meta_dic["cpu"])
+            _cmd.append("-o")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.sorted.bam"))
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.bam"))
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
+
+    def make_bismark_qualimap_sh(self):
+        outfh = self.bismark_sh.open("a")
+        for target_id, read_dic in self.fastq_dic['ready'].items():
+            _cmd = ['qualimap']
+            _cmd.append("bamqc")
+            _cmd.append("-bam")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.sorted.bam"))
+            _cmd.append("-outdir")
+            _cmd.append(str(self.bismarkpath / f"{target_id}_bismark_qualimap"))
+            _cmd.append("--paint-chromosome-limits")
+            _cmd.append("--feature-file")
+            _cmd.append(self.meta_dic["target_bed"])
+            _cmd.append("--java-mem-size=4G")
+            outfh.write("{0}\n".format(' '.join(_cmd)))
+        outfh.close()
 
 def main(args):
 
@@ -860,6 +909,10 @@ def main(args):
         obj.make_bismark_methylcall_sh()
         obj.make_bismark_report_sh()
         obj.make_bismark_summary_sh()
+
+        obj.make_bismark_sort_sh()
+        obj.make_bismark_hsmetrics_sh()
+        obj.make_bismark_qualimap_sh()
 
 
 
