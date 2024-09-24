@@ -10,20 +10,20 @@ class Bismark:
         self.wkdir = Path(wkdir)
         self.sample_name = sample_name
 
-        self.cx_report_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CX_report.txt.gz"
-        self.cpg_report_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG_report.txt.gz"
-        self.chg_report_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG_report.txt.gz"
-        self.chh_report_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH_report.txt.gz"
+        self.cx_report_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CX_report.txt.gz"
+        self.cpg_report_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG_report.txt.gz"
+        self.chg_report_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG_report.txt.gz"
+        self.chh_report_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH_report.txt.gz"
 
-        self.bedgraph_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.bedGraph.gz"
-        self.cpg_bedgraph_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG.bedGraph.gz"
-        self.chg_bedgraph_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG.bedGraph.gz"
-        self.chh_bedgraph_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH.bedGraph.gz"
+        self.bedgraph_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.bedGraph.gz"
+        self.cpg_bedgraph_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG.bedGraph"
+        self.chg_bedgraph_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG.bedGraph"
+        self.chh_bedgraph_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH.bedGraph"
 
-        self.cov_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.bismark.cov.gz"
-        self.cpg_cov_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG.bismark.cov.gz"
-        self.chg_cov_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG.bismark.cov.gz"
-        self.chh_cov_fn = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH.bismark.cov.gz"
+        self.cov_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.bismark.cov.gz"
+        self.cpg_cov_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CpG.bismark.cov.gz"
+        self.chg_cov_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHG.bismark.cov.gz"
+        self.chh_cov_fp = self.wkdir / f"{self.sample_name}_R1_bismark_bt2_pe.deduplicated.CHH.bismark.cov.gz"
 
         self.cytosine_context = self.load_cytosine_context(cytosine_context)
         self.pos_dict = {}
@@ -42,10 +42,10 @@ class Bismark:
 
     def split_cx_report(self):
         logging.info("Splitting CpG, CHG, CHH reports")
-        outfh_cpg = gzip.open(self.cpg_report_fn, 'wb')
-        outfh_chg = gzip.open(self.chg_report_fn, 'wb')
-        outfh_chh = gzip.open(self.chh_report_fn, 'wb')
-        for line in gzip.open(self.cx_report_fn, 'rt'):
+        outfh_cpg = gzip.open(self.cpg_report_fp, 'wb')
+        outfh_chg = gzip.open(self.chg_report_fp, 'wb')
+        outfh_chh = gzip.open(self.chh_report_fp, 'wb')
+        for line in gzip.open(self.cx_report_fp, 'rt'):
             items = line.rstrip().split("\t")
             if not len(items) in [7]:
                 continue
@@ -58,66 +58,69 @@ class Bismark:
         outfh_cpg.close()
         outfh_chg.close()
         outfh_chh.close()
-                    
+    
     def load_pos_from_cx_report(self):
         logging.info(f"Loading positions from {self.cytosine_context}_report")
         if self.cytosine_context == "CpG":
-            cx_report_fn = self.cpg_report_fn
+            cx_report_fp = self.cpg_report_fp
         elif self.cytosine_context == "CHG":
-            cx_report_fn = self.chg_report_fn
+            cx_report_fp = self.chg_report_fp
         elif self.cytosine_context == "CHH":
-            cx_report_fn = self.chh_report_fn
+            cx_report_fp = self.chh_report_fp
 
-        for line in gzip.open(cx_report_fn, 'rt'):
+        for line in gzip.open(cx_report_fp, 'rt'):
             items = line.rstrip().split("\t")
             if not len(items) in [7]:
                 continue
-            self.pos_dict.setdefault(str(items[0]), []).append(int(items[1]))
-        
+            if int(items[3]) or int(items[4]): # load covered position only
+                self.pos_dict.setdefault(str(items[0]), []).append(int(items[1]))
+
         for chrom, pos_list in self.pos_dict.items():
             logging.info(f"Loaded {chrom}: {len(pos_list)} positions")
-    
+
     def extract_cx_from_bedgraph(self):
         logging.info(f"Extracted {self.cytosine_context} from bedGraph")
         if not self.pos_dict:
             raise ValueError("Positions not loaded. Call load_pos_from_cx_report first.")
 
         if self.cytosine_context == "CpG":
-            bedgraph_fn = self.cpg_bedgraph_fn
+            bedgraph_fp = self.cpg_bedgraph_fp
         elif self.cytosine_context == "CHG":
-            bedgraph_fn = self.chg_bedgraph_fn
+            bedgraph_fp = self.chg_bedgraph_fp
         elif self.cytosine_context == "CHH":
-            bedgraph_fn = self.chh_bedgraph_fn
+            bedgraph_fp = self.chh_bedgraph_fp
 
-        outfh = gzip.open(bedgraph_fn, 'wb')
-        for line in gzip.open(self.bedgraph_fn, 'rt'):
+        outfh = open(bedgraph_fp, 'w')
+        for line in gzip.open(self.bedgraph_fp, 'rt'):
             if line.startswith("track"):
-                outfh.write(line.encode('utf-8'))
+                #outfh.write(line.encode('utf-8'))
+                outfh.write(line)
                 continue
             items = line.rstrip().split("\t")
             if int(items[2]) in self.pos_dict[items[0]]:
-                outfh.write(line.encode('utf-8'))
+                #outfh.write(line.encode('utf-8'))
+                outfh.write(line)
         outfh.close()
-    
+
     def extract_cx_from_bismark_cov(self):
         logging.info(f"Extracted {self.cytosine_context} from bismark.cov")
         if not self.pos_dict:
             raise ValueError("Positions not loaded. Call load_pos_from_cx_report first.")
 
         if self.cytosine_context == "CpG":
-            cov_fn = self.cpg_cov_fn
+            cov_fp = self.cpg_cov_fp
         elif self.cytosine_context == "CHG":
-            cov_fn = self.chg_cov_fn
+            cov_fp = self.chg_cov_fp
         elif self.cytosine_context == "CHH":
-            cov_fn = self.chh_cov_fn
-        
-        outfh = gzip.open(cov_fn, 'wb')
-        for line in gzip.open(self.cov_fn, 'rt'):
+            cov_fp = self.chh_cov_fp
+
+        outfh = gzip.open(cov_fp, 'wb')
+        for line in gzip.open(self.cov_fp, 'rt'):
             items = line.rstrip().split("\t")
             if int(items[3]) in self.pos_dict[items[0]]:
                 outfh.write(line.encode('utf-8'))
         outfh.close()
-            
+
 
 
 

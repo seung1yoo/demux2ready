@@ -1,0 +1,41 @@
+#!/bin/bash
+
+input_dir=$1
+sample=$2
+context=$3
+min_depth=$4
+
+output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}"
+
+if [ -f "$output_file" ]; then
+    rm "$output_file"
+fi
+
+if [ -f "${output_file}.gz" ]; then
+    rm "${output_file}.gz"
+fi
+
+find "$input_dir" -name "${sample}_*.${context}_report.*.txt.gz" | sort | while read -r file; do
+    echo "Processing file: $file"
+
+    zcat $file | awk '
+    {
+        depth = $4 + $5
+        if (depth < $min_depth) {
+            next
+        }
+        
+        new_col1 = $1
+        new_col2 = $2 - 1
+        new_col3 = $2
+        ratio = ($4 / depth) * 100
+
+        printf "%s\t%d\t%d\t%.2f\n", new_col1, new_col2, new_col3, ratio
+    }' >> "$output_file"
+done
+
+echo "Compressing : ${output_file}"
+
+gzip "$output_file"
+
+echo "BedGraph files combined and compressed into: ${output_file}.gz"
