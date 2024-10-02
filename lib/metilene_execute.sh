@@ -1,21 +1,23 @@
 #!/bin/bash
 
-if [ $# -ne 4 ]; then
-    echo "Usage: $0 <Control> <Case> <Output_Dir> <Context>"
+if [ $# -ne 6 ]; then
+    echo "Usage: $0 <control_input_dir> <control> <case_input_dir> <case> <output_dir> <context>"
     exit 1
 fi
 
-control=$1
-case=$2
-output_dir=$3
-context=$4
+control_input_dir=$1
+control=$2
+case_input_dir=$3
+case=$4
+output_dir=$5
+context=$6
 
 mkdir -p "${output_dir}/${context}"
 
 pushd "${output_dir}/${context}" || exit
 
-metilene_input.pl --in1 ../../${control}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}.gz \
-                  --in2 ../../${case}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}.gz \
+metilene_input.pl --in1 ${control_input_dir}/${control}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}.gz \
+                  --in2 ${case_input_dir}/${case}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}.gz \
                   --h1 "$control" --h2 "$case"
 
 metilene -t 4 -a "$control" -b "$case" metilene_${control}_${case}.input | \

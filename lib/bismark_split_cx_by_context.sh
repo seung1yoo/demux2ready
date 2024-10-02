@@ -1,4 +1,8 @@
 #!/bin/bash
+# best usage : bismark_split_cx_by_context.sh \
+#                  {input_dir -> demux2ready/bismark} \
+#                  {sample -> A7_1} \
+#                  {output_dir -> demux2ready/bismark/A7_1_split_cx_by_context}
 
 input_dir=$1
 sample=$2

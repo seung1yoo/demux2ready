@@ -1,4 +1,9 @@
 #!/bin/bash
+# best usage : bismark_cx_to_bedGraph.sh \
+#                  {input_dir -> demux2ready/bismark/A7_1_split_cx_by_context} \
+#                  {sample -> A7_1} \
+#                  {context -> CG} \
+#                  {min_depth -> 5}
 
 input_dir=$1
 sample=$2
