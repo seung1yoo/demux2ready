@@ -1,5 +1,6 @@
 
 from ossaudiodev import control_names
+from re import I
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -40,7 +41,7 @@ class MetileneData:
 
     def load_cx_to_bedGraph_sh_results(self, sample, context):
         self.bedGraph_path_dic.setdefault(sample, {})
-        _path = Path('demux2ready/bismark') / f"{sample}_split_cx_by_context" / f"{sample}_R1_bismark_bt2_pe.deduplicated.bedGraph.{context}.gz"
+        _path = Path('demux2ready/bismark_wi_dedup') / f"{sample}_split_cx_by_context" / f"{sample}_R1_bismark_bt2_pe.deduplicated.bedGraph.{context}.gz"
         if _path.exists():
             self.bedGraph_path_dic[sample][context] = _path
             logging.info(f"Load bedGraph path : {str(_path)}")
@@ -132,30 +133,6 @@ class MetileneData:
         wb.save(str( self.outdir / dmr_id / f"{dmr_id}.Result_table.xlsx"))
 
 
-def run_cmd(cmd, shell=False):
-
-    if shell:
-        try:
-            result = subprocess.run(' '.join(cmd), shell=True, text=True, capture_output=True)
-            if result.returncode != 0:
-                logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
-                sys.exit(1)
-            return result.stdout
-        except Exception as e:
-            logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
-            sys.exit(1)
-    else:
-        try:
-            result = subprocess.run(cmd, text=True, capture_output=True)
-            if result.returncode != 0:
-                logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
-                sys.exit(1)
-            return result.stdout
-        except Exception as e:
-            logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
-            sys.exit(1)
-
-
 class MetileneExecute:
 
     metilene_exe = Path("metilene") # in conda env
@@ -233,7 +210,14 @@ class MetileneExecute:
         cmd.append('-loj')
         cmd.append('|')
         cmd.append('sed')
-        cmd.append('"1ichr\tstart\tstop\tq-value\tmean_methylation_delta\tcpg_count\tp-MWU\tp-2D_KS\tmean_${control}\tmean_${case}\tanno_chr\tanno_start\tanno_stop\tanno_gene\tanno_score\tanno_strand"')
+        cmd.append("\"1ichr\\tstart\\tstop\\tq-value\\tmean_methylation_delta\\tcpg_count\\tp-MWU\\tp-2D_KS\\t"
+                   f"mean_{control_name}\\tmean_{case_name}\\t"
+                   "anno_chr\\tanno_start\\tanno_stop\\tanno_gene\\tanno_score\\tanno_strand\"")
+        cmd.append("|")
+        cmd.append("(head -n 1 && tail -n +2 | sort -g -k4,4 -k5,5n)")
+        cmd.append("|")
+        cmd.append("awk 'BEGIN {OFS=\"\\t\"} NR==1 {print; next} $11 != \".\" {print}"
+                   " $11 == \".\" {$11=\"\"; for(i=12; i<=NF; i++) $i=\"\"; print}'")
         cmd.append('>')
         cmd.append(str(a_result))
         return cmd
@@ -264,57 +248,102 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
             logging.info(f"DMR SET : {dmr_id}")
             logging.info(f"{control_name} : {controls}")
             logging.info(f"{case_name} : {cases}")
+    
+    def do_prepare(self, min_depth, is_run_cmd=True):
+        for sample in self.samples:
+            cmd = self.mkcmd_split_cx_by_context_sh(sample)
+            if is_run_cmd:
+                logging.debug(' '.join(cmd))
+                stdout = run_cmd(cmd)
+                logging.info(stdout)
+            for context in ['CG', 'CHG','CHH']:
+                cmd = self.mkcmd_cx_to_bedGraph_sh(sample, context, min_depth)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout = run_cmd(cmd)
+                    logging.info(stdout)
+                self.load_cx_to_bedGraph_sh_results(sample, context)
         
+    def do_execute(self, dmr_comp, anno_bed, is_run_cmd=True):
+        self.load_dmr_comp(dmr_comp)
+        for dmr_id, sample_dic in self.dmr_comp_dic.items():
+            control_name = sample_dic['control_name']
+            controls = sample_dic['controls']
+            case_name = sample_dic['case_name']
+            cases = sample_dic['cases']
+            for context in ['CG', 'CHG','CHH']:
+                cmd = self.mkcmd_metilene_input_pl(dmr_id, control_name, controls, case_name, cases, context)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout = run_cmd(cmd)
+                    logging.info(stdout)
+                cmd = self.execute_metilene(dmr_id, control_name, case_name, context)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout = run_cmd(cmd, shell=True)
+                    logging.info(stdout)
+                cmd = self.mkcmd_metilene_output_pl(dmr_id, control_name, case_name, context)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout = run_cmd(cmd)
+                    logging.info(stdout)
+                cmd = self.mkcmd_metilene_anno(dmr_id, control_name, case_name, context, anno_bed)
+                #if is_run_cmd:
+                logging.debug(' '.join(cmd))
+                stdout = run_cmd(cmd, shell=True)
+                logging.info(stdout)
+                self.load_metilene_results(dmr_id, control_name, case_name, context)
+    
+    def do_summary(self):
+        for dmr_id, context_dic in self.metilene_path_dic.items():
+            cpg_result = context_dic['CG']
+            chg_result = context_dic['CHG']
+            chh_result = context_dic['CHH']
+            self.write_excel(dmr_id, cpg_result, chg_result, chh_result)
+
+
+def run_cmd(cmd, shell=False):
+
+    if shell:
+        try:
+            result = subprocess.run(' '.join(cmd), shell=True, text=True, capture_output=True)
+            if result.returncode != 0:
+                logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
+                sys.exit(1)
+            return result.stdout
+        except Exception as e:
+            logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
+            sys.exit(1)
+    else:
+        try:
+            result = subprocess.run(cmd, text=True, capture_output=True)
+            if result.returncode != 0:
+                logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
+                sys.exit(1)
+            return result.stdout
+        except Exception as e:
+            logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
+            sys.exit(1)
+
 
 
 def main(args):
 
     metilene = Metilene(args.samples, args.outdir, args.outprefix)
 
-    for sample in metilene.samples:
-        cmd = metilene.mkcmd_split_cx_by_context_sh(sample)
-        logging.debug(' '.join(cmd))
-        #stdout = run_cmd(cmd)
-        #logging.info(stdout)
-        for context in ['CG', 'CHG','CHH']:
-            cmd = metilene.mkcmd_cx_to_bedGraph_sh(sample, context, args.min_depth)
-            logging.debug(' '.join(cmd))
-            #stdout = run_cmd(cmd)
-            #logging.info(stdout)
-            metilene.load_cx_to_bedGraph_sh_results(sample, context)
-        print(metilene.bedGraph_path_dic)
+    if args.is_run_prepare:
+        metilene.do_prepare(args.min_depth, is_run_cmd=True)
+    else:
+        metilene.do_prepare(args.min_depth, is_run_cmd=False)
+    
+    if args.is_run_execute:
+        metilene.do_execute(args.dmr_comp, args.anno_bed, is_run_cmd=True)
+    else:
+        metilene.do_execute(args.dmr_comp, args.anno_bed, is_run_cmd=False)
 
-    metilene.load_dmr_comp(args.dmr_comp)
-    for dmr_id, sample_dic in metilene.dmr_comp_dic.items():
-        control_name = sample_dic['control_name']
-        controls = sample_dic['controls']
-        case_name = sample_dic['case_name']
-        cases = sample_dic['cases']
-        for context in ['CG', 'CHG','CHH']:
-            cmd = metilene.mkcmd_metilene_input_pl(dmr_id, control_name, controls, case_name, cases, context)
-            logging.debug(' '.join(cmd))
-            stdout = run_cmd(cmd)
-            logging.info(stdout)
-            cmd = metilene.execute_metilene(dmr_id, control_name, case_name, context)
-            logging.debug(' '.join(cmd))
-            stdout = run_cmd(cmd, shell=True)
-            logging.info(stdout)
-            cmd = metilene.mkcmd_metilene_output_pl(dmr_id, control_name, case_name, context)
-            logging.debug(' '.join(cmd))
-            stdout = run_cmd(cmd)
-            logging.info(stdout)
-            cmd = metilene.mkcmd_metilene_anno(dmr_id, control_name, case_name, context, args.anno_bed)
-            logging.debug(' '.join(cmd))
-            stdout = run_cmd(cmd, shell=True)
-            logging.info(stdout)
+    metilene.do_summary()
 
-            metilene.load_metilene_results(dmr_id, control_name, case_name, context)
 
-    for dmr_id, context_dic in metilene.metilene_path_dic.items():
-        cpg_result = context_dic['CG']
-        chg_result = context_dic['CHG']
-        chh_result = context_dic['CHH']
-        metilene.write_excel(dmr_id, cpg_result, chg_result, chh_result)
 
 
 if __name__ == '__main__':
@@ -326,11 +355,10 @@ if __name__ == '__main__':
     parser.add_argument('--min-depth', default='5', type=str)
     parser.add_argument('--dmr-comp', action='append', nargs=5,
                         metavar=('dmr_id', 'control_group_name', 'control_samples', 'case_group_name', 'case_samples'))
-    parser.add_argument('--cpg-result', default="DMR001/CG/metilene_Donor_P05.output.anno")
-    parser.add_argument('--chg-result', default="DMR001/CHG/metilene_Donor_P05.output.anno")
-    parser.add_argument('--chh-result', default="DMR001/CHH/metilene_Donor_P05.output.anno")
     parser.add_argument('--outdir', default="demux2ready/metilene")
     parser.add_argument('--outprefix', default="metilene")
     parser.add_argument('--anno-bed', default="/storage2/User/siyoo/module/demux2ready/src/MANE.GRCh38.v1.3.summary.chr.sorted.bed")
+    parser.add_argument('--is-run-prepare', action='store_true')
+    parser.add_argument('--is-run-execute', action='store_true')
     args = parser.parse_args()
     main(args)
