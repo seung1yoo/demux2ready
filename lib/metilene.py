@@ -288,10 +288,10 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
                     stdout = run_cmd(cmd)
                     logging.info(stdout)
                 cmd = self.mkcmd_metilene_anno(dmr_id, control_name, case_name, context, anno_bed)
-                #if is_run_cmd:
-                logging.debug(' '.join(cmd))
-                stdout = run_cmd(cmd, shell=True)
-                logging.info(stdout)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout = run_cmd(cmd, shell=True)
+                    logging.info(stdout)
                 self.load_metilene_results(dmr_id, control_name, case_name, context)
     
     def do_summary(self):
