@@ -4,13 +4,15 @@
 #                  {sample -> A7_1} \
 #                  {context -> CG} \
 #                  {min_depth -> 5}
+#                  {is_dedup -> "deduplicated." or ""}
 
 input_dir=$1
 sample=$2
 context=$3
 min_depth=$4
+is_dedup=$5
 
-output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.deduplicated.bedGraph.${context}"
+output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.${is_dedup}bedGraph.${context}"
 
 if [ -f "$output_file" ]; then
     rm "$output_file"

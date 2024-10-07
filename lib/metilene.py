@@ -16,21 +16,23 @@ class MetilenePrepare:
     bismark_split_cx_by_context_sh = Path('/storage2/User/siyoo/module/demux2ready/lib/bismark_split_cx_by_context.sh')
     bismark_cx_to_bedGraph_sh = Path('/storage2/User/siyoo/module/demux2ready/lib/bismark_cx_to_bedGraph.sh')
     
-    def mkcmd_split_cx_by_context_sh(self, sample):
+    def mkcmd_split_cx_by_context_sh(self, sample, is_dedup):
         cmd = list()
         cmd.append(str(self.bismark_split_cx_by_context_sh))
         cmd.append('demux2ready/bismark')
         cmd.append(sample)
         cmd.append(f'demux2ready/bismark/{sample}_split_cx_by_context')
+        cmd.append(f'"{is_dedup}"')
         return cmd
     
-    def mkcmd_cx_to_bedGraph_sh(self, sample, context, min_depth):
+    def mkcmd_cx_to_bedGraph_sh(self, sample, context, min_depth, is_dedup):
         cmd = list()
         cmd.append(str(self.bismark_cx_to_bedGraph_sh))
         cmd.append(f'demux2ready/bismark/{sample}_split_cx_by_context')
         cmd.append(sample)
         cmd.append(context)
         cmd.append(min_depth)
+        cmd.append(f'"{is_dedup}"')
         return cmd
 
 
@@ -39,14 +41,15 @@ class MetileneData:
     bedGraph_path_dic = dict()
     metilene_path_dic = dict()
 
-    def load_cx_to_bedGraph_sh_results(self, sample, context):
+    def load_cx_to_bedGraph_sh_results(self, sample, context, is_dedup):
         self.bedGraph_path_dic.setdefault(sample, {})
-        _path = Path('demux2ready/bismark_wi_dedup') / f"{sample}_split_cx_by_context" / f"{sample}_R1_bismark_bt2_pe.deduplicated.bedGraph.{context}.gz"
+        _path = Path('demux2ready/bismark') / f"{sample}_split_cx_by_context" / f"{sample}_R1_bismark_bt2_pe.{is_dedup}bedGraph.{context}.gz"
         if _path.exists():
             self.bedGraph_path_dic[sample][context] = _path
             logging.info(f"Load bedGraph path : {str(_path)}")
         else:
             logging.info(f"Failed to load bedGraph path : {str(_path)} is not exists.")
+            sys.exit(1)
     
     def load_metilene_results(self, dmr_id, control_name, case_name, context):
         self.metilene_path_dic.setdefault(dmr_id, {})
@@ -249,20 +252,22 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
             logging.info(f"{control_name} : {controls}")
             logging.info(f"{case_name} : {cases}")
     
-    def do_prepare(self, min_depth, is_run_cmd=True):
+    def do_prepare(self, min_depth, is_dedup, is_run_cmd=True):
         for sample in self.samples:
-            cmd = self.mkcmd_split_cx_by_context_sh(sample)
+            cmd = self.mkcmd_split_cx_by_context_sh(sample, is_dedup)
             if is_run_cmd:
                 logging.debug(' '.join(cmd))
-                stdout = run_cmd(cmd)
-                logging.info(stdout)
+                stdout, stderr = run_cmd(cmd)
+                logging.info(f"stdout : {stdout}")
+                logging.info(f"stderr : {stderr}")
             for context in ['CG', 'CHG','CHH']:
-                cmd = self.mkcmd_cx_to_bedGraph_sh(sample, context, min_depth)
+                cmd = self.mkcmd_cx_to_bedGraph_sh(sample, context, min_depth, is_dedup)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
-                    stdout = run_cmd(cmd)
-                    logging.info(stdout)
-                self.load_cx_to_bedGraph_sh_results(sample, context)
+                    stdout, stderr = run_cmd(cmd)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
+                self.load_cx_to_bedGraph_sh_results(sample, context, is_dedup)
         
     def do_execute(self, dmr_comp, anno_bed, is_run_cmd=True):
         self.load_dmr_comp(dmr_comp)
@@ -275,23 +280,27 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
                 cmd = self.mkcmd_metilene_input_pl(dmr_id, control_name, controls, case_name, cases, context)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
-                    stdout = run_cmd(cmd)
-                    logging.info(stdout)
+                    stdout, stderr = run_cmd(cmd)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
                 cmd = self.execute_metilene(dmr_id, control_name, case_name, context)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
-                    stdout = run_cmd(cmd, shell=True)
-                    logging.info(stdout)
+                    stdout, stderr = run_cmd(cmd, shell=True)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
                 cmd = self.mkcmd_metilene_output_pl(dmr_id, control_name, case_name, context)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
-                    stdout = run_cmd(cmd)
-                    logging.info(stdout)
+                    stdout, stderr = run_cmd(cmd)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
                 cmd = self.mkcmd_metilene_anno(dmr_id, control_name, case_name, context, anno_bed)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
-                    stdout = run_cmd(cmd, shell=True)
-                    logging.info(stdout)
+                    stdout, stderr = run_cmd(cmd, shell=True)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
                 self.load_metilene_results(dmr_id, control_name, case_name, context)
     
     def do_summary(self):
@@ -310,7 +319,7 @@ def run_cmd(cmd, shell=False):
             if result.returncode != 0:
                 logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
                 sys.exit(1)
-            return result.stdout
+            return result.stdout, result.stderr
         except Exception as e:
             logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
             sys.exit(1)
@@ -320,7 +329,7 @@ def run_cmd(cmd, shell=False):
             if result.returncode != 0:
                 logging.error(f"Error executing: {' '.join(cmd)}\nError : {result.stderr}")
                 sys.exit(1)
-            return result.stdout
+            return result.stdout, result.stderr
         except Exception as e:
             logging.error(f"Exception while executing: {' '.join(cmd)}\n{e}")
             sys.exit(1)
@@ -332,9 +341,9 @@ def main(args):
     metilene = Metilene(args.samples, args.outdir, args.outprefix)
 
     if args.is_run_prepare:
-        metilene.do_prepare(args.min_depth, is_run_cmd=True)
+        metilene.do_prepare(args.min_depth, args.is_dedup, is_run_cmd=True)
     else:
-        metilene.do_prepare(args.min_depth, is_run_cmd=False)
+        metilene.do_prepare(args.min_depth, args.is_dedup, is_run_cmd=False)
     
     if args.is_run_execute:
         metilene.do_execute(args.dmr_comp, args.anno_bed, is_run_cmd=True)
@@ -358,7 +367,9 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', default="demux2ready/metilene")
     parser.add_argument('--outprefix', default="metilene")
     parser.add_argument('--anno-bed', default="/storage2/User/siyoo/module/demux2ready/src/MANE.GRCh38.v1.3.summary.chr.sorted.bed")
+    parser.add_argument('--is-dedup', default="deduplicated.")
     parser.add_argument('--is-run-prepare', action='store_true')
     parser.add_argument('--is-run-execute', action='store_true')
     args = parser.parse_args()
     main(args)
+
