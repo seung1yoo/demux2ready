@@ -10,12 +10,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 def calculate_md5(file_path):
     """Calculate the MD5 checksum of a file."""
-    logging.info(f"Calculating MD5 for: {file_path}")  # 파일 경로와 시간을 로그로 출력합니다.
-    hash_md5 = hashlib.md5()  # MD5 해시 객체를 생성합니다.
-    with open(file_path, "rb") as f:  # 파일을 바이너리 모드로 엽니다.
-        for chunk in iter(lambda: f.read(4096), b""):  # 파일을 4096 바이트씩 읽습니다.
-            hash_md5.update(chunk)  # 읽은 데이터를 해시 객체에 추가합니다.
-    return hash_md5.hexdigest()  # 최종 MD5 해시 값을 16진수 문자열로 반환합니다.
+    logging.info(f"Calculating MD5 for: {file_path}")
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 def load_existing_md5(file_path):
     """Load existing MD5 checksum from a file."""
