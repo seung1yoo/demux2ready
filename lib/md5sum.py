@@ -29,8 +29,7 @@ def load_existing_md5(file_path):
 
 def main(path: Path, date: str, existing_files: list):
     # Define the file extensions to look for
-    #extensions = [".cram", ".cnv.vcf.gz", ".sv.vcf.gz", ".hard-filtered.gvcf.gz", ".hard-filtered.vcf.gz", ".html"]
-    extensions = [".html"]
+    extensions = [".cram", ".cnv.vcf.gz", ".sv.vcf.gz", ".hard-filtered.gvcf.gz", ".hard-filtered.vcf.gz", ".html"]
     
     # Load existing MD5 checksums
     existing_md5 = {}
