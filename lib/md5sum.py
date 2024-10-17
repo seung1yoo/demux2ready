@@ -24,7 +24,8 @@ def load_existing_md5(file_path):
         with open(file_path, "r") as f:
             for line in f:
                 md5, path = line.strip().split()
-                md5_dict[path] = md5
+                abs_path = Path(path).resolve()
+                md5_dict[abs_path] = md5
     return md5_dict
 
 def main(path: Path, date: str, existing_files: list):
@@ -41,7 +42,7 @@ def main(path: Path, date: str, existing_files: list):
     with open(output_file, "w") as out_f:
         for ext in extensions:
             for file in path.rglob(f"*{ext}"):
-                file_path_str = str(file)
+                file_path_str = str(file.resolve())
                 if file_path_str in existing_md5:
                     md5 = existing_md5[file_path_str]
                 else:
