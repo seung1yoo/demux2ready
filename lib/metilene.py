@@ -160,19 +160,15 @@ class MetileneExecute:
         cmd.append(str(a_result))
         return cmd
     
-    def mkcmd_metilene_input_sort(self, dmr_id, control_name, controls, case_name, cases, context):
+    def mkcmd_metilene_input_fix(self, dmr_id, control_name, controls, case_name, cases, context):
         a_outdir = self.outdir / dmr_id / context
         a_outdir.mkdir(exist_ok=True, parents=True)
-        a_result = a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input.sort"
+        a_result = a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input.fix"
 
         cmd = ['cat']
         cmd.append(str(a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input"))
         cmd.append('|')
-        cmd.append('head -n 1 && tail -n +2')
-        cmd.append('|')
-        cmd.append('sort -k1,1 -k2,2n')
-        cmd.append('|')
-        cmd.append('uniq')
+        cmd.append('(head -n 1 && tail -n +2 | sort -k1,1 -k2,2n | uniq)')
         cmd.append('>')
         cmd.append(str(a_result))
 
@@ -190,7 +186,7 @@ class MetileneExecute:
         cmd.append(control_name)
         cmd.append('-b')
         cmd.append(case_name)
-        cmd.append(str(a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input.sort"))
+        cmd.append(str(a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input.fix"))
         cmd.append('|')
         cmd.append('awk')
         cmd.append("'$2 < $3 {print $0}'")
@@ -304,7 +300,7 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
                     stdout, stderr = run_cmd(cmd)
                     logging.info(f"stdout : {stdout}")
                     logging.info(f"stderr : {stderr}")
-                cmd = self.mkcmd_metilene_input_sort(dmr_id, control_name, controls, case_name, cases, context)
+                cmd = self.mkcmd_metilene_input_fix(dmr_id, control_name, controls, case_name, cases, context)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
                     stdout, stderr = run_cmd(cmd, shell=True)
