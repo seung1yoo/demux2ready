@@ -22,6 +22,10 @@ if [ -f "${output_file}.gz" ]; then
     rm "${output_file}.gz"
 fi
 
+if [ -f "${output_file}.temp" ]; then
+    rm "${output_file}.temp"
+fi
+
 find "$input_dir" -name "${sample}_*.${context}_report.*.txt.gz" | sort | while read -r file; do
     echo "Processing file: $file"
 
@@ -38,11 +42,13 @@ find "$input_dir" -name "${sample}_*.${context}_report.*.txt.gz" | sort | while 
         ratio = ($4 / depth) * 100
 
         printf "%s\t%d\t%d\t%.2f\n", new_col1, new_col2, new_col3, ratio
-    }' >> "$output_file"
+    }' >> "${output_file}.temp"
 done
 
+echo "Sorting : ${output_file}.temp"
+bedtools sort -i "${output_file}.temp" > "${output_file}"
+rm "${output_file}.temp"
+
 echo "Compressing : ${output_file}"
-
-gzip "$output_file"
-
+gzip "${output_file}"
 echo "BedGraph files combined and compressed into: ${output_file}.gz"

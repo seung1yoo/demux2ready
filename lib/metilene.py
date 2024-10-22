@@ -15,6 +15,7 @@ import subprocess
 class MetilenePrepare:
     bismark_split_cx_by_context_sh = Path('/storage2/User/siyoo/module/demux2ready/lib/bismark_split_cx_by_context.sh')
     bismark_cx_to_bedGraph_sh = Path('/storage2/User/siyoo/module/demux2ready/lib/bismark_cx_to_bedGraph.sh')
+    bismark_cx_to_bedCov_sh = Path('/storage2/User/siyoo/module/demux2ready/lib/bismark_cx_to_bedCov.sh')
     
     def mkcmd_split_cx_by_context_sh(self, sample, is_dedup):
         cmd = list()
@@ -28,6 +29,16 @@ class MetilenePrepare:
     def mkcmd_cx_to_bedGraph_sh(self, sample, context, min_depth, is_dedup):
         cmd = list()
         cmd.append(str(self.bismark_cx_to_bedGraph_sh))
+        cmd.append(f'demux2ready/bismark/{sample}_split_cx_by_context')
+        cmd.append(sample)
+        cmd.append(context)
+        cmd.append(min_depth)
+        cmd.append(f'"{is_dedup}"')
+        return cmd
+
+    def mkcmd_cx_to_bedCov_sh(self, sample, context, min_depth, is_dedup):
+        cmd = list()
+        cmd.append(str(self.bismark_cx_to_bedCov_sh))
         cmd.append(f'demux2ready/bismark/{sample}_split_cx_by_context')
         cmd.append(sample)
         cmd.append(context)
@@ -174,7 +185,7 @@ class MetileneExecute:
 
         return cmd
     
-    def execute_metilene(self, dmr_id, control_name, case_name, context):
+    def execute_metilene(self, dmr_id, control_name, case_name, context, known_bed):
         a_outdir = self.outdir / dmr_id / context
         a_outdir.mkdir(exist_ok=True, parents=True)
         a_result = a_outdir / f"{self.outprefix}_{control_name}_{case_name}.output"
@@ -186,6 +197,9 @@ class MetileneExecute:
         cmd.append(control_name)
         cmd.append('-b')
         cmd.append(case_name)
+        if Path(known_bed).exists():
+            cmd.append('-B')
+            cmd.append(known_bed)
         cmd.append(str(a_outdir / f"{self.outprefix}_{control_name}_{case_name}.input.fix"))
         cmd.append('|')
         cmd.append('awk')
@@ -285,8 +299,16 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
                     logging.info(f"stdout : {stdout}")
                     logging.info(f"stderr : {stderr}")
                 self.load_cx_to_bedGraph_sh_results(sample, context, is_dedup)
+            for context in ['CG', 'CHG','CHH']:
+                cmd = self.mkcmd_cx_to_bedCov_sh(sample, context, min_depth, is_dedup)
+                if is_run_cmd:
+                    logging.debug(' '.join(cmd))
+                    stdout, stderr = run_cmd(cmd)
+                    logging.info(f"stdout : {stdout}")
+                    logging.info(f"stderr : {stderr}")
+                self.load_cx_to_bedCov_sh_results(sample, context, is_dedup)
         
-    def do_execute(self, dmr_comp, anno_bed, is_run_cmd=True):
+    def do_execute(self, dmr_comp, known_bed, anno_bed, is_run_cmd=True):
         self.load_dmr_comp(dmr_comp)
         for dmr_id, sample_dic in self.dmr_comp_dic.items():
             control_name = sample_dic['control_name']
@@ -306,7 +328,7 @@ class Metilene(MetilenePrepare, MetileneData, MetileneExecute):
                     stdout, stderr = run_cmd(cmd, shell=True)
                     logging.info(f"stdout : {stdout}")
                     logging.info(f"stderr : {stderr}")
-                cmd = self.execute_metilene(dmr_id, control_name, case_name, context)
+                cmd = self.execute_metilene(dmr_id, control_name, case_name, context, known_bed)
                 if is_run_cmd:
                     logging.debug(' '.join(cmd))
                     stdout, stderr = run_cmd(cmd, shell=True)
@@ -369,9 +391,9 @@ def main(args):
         metilene.do_prepare(args.min_depth, args.is_dedup, is_run_cmd=False)
     
     if args.is_run_execute:
-        metilene.do_execute(args.dmr_comp, args.anno_bed, is_run_cmd=True)
+        metilene.do_execute(args.dmr_comp, args.known_bed, args.anno_bed, is_run_cmd=True)
     else:
-        metilene.do_execute(args.dmr_comp, args.anno_bed, is_run_cmd=False)
+        metilene.do_execute(args.dmr_comp, args.known_bed, args.anno_bed, is_run_cmd=False)
 
     metilene.do_summary()
 
@@ -390,6 +412,7 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', default="demux2ready/metilene")
     parser.add_argument('--outprefix', default="metilene")
     parser.add_argument('--anno-bed', default="/storage2/User/siyoo/module/demux2ready/src/MANE.GRCh38.v1.3.summary.chr.sorted.bed")
+    parser.add_argument('--known-bed', default="/storage2/User/siyoo/module/demux2ready/src/S03770311_Regions.merge.liftover_hg38.bed")
     parser.add_argument('--is-dedup', default="deduplicated.")
     parser.add_argument('--is-run-prepare', action='store_true')
     parser.add_argument('--is-run-execute', action='store_true')
