@@ -12,7 +12,7 @@ context=$3
 min_depth=$4
 is_dedup=$5
 
-output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.${is_dedup}bedCov.${context}"
+output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.${is_dedup}bedCov.${context}.minDepth${min_depth}"
 
 if [ -f "$output_file" ]; then
     rm "$output_file"
@@ -32,14 +32,18 @@ find "$input_dir" -name "${sample}_*.${context}_report.*.txt.gz" | sort | while 
     zcat $file | awk '
     {
         depth = $4 + $5
-        if (depth < $min_depth) {
+        if (depth < '$min_depth') {
             next
         }
         
         new_col1 = $1
-        new_col2 = $2 - 1
+        new_col2 = $2
         new_col3 = $2
-        ratio = ($4 / depth) * 100
+        if (depth > 0) {
+            ratio = ($4 / depth) * 100
+        } else {
+            ratio = 0
+        }
         meth_depth = $4 
         unmeth_depth = $5
 
