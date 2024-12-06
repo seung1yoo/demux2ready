@@ -12,7 +12,7 @@ context=$3
 min_depth=$4
 is_dedup=$5
 
-output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.${is_dedup}bedGraph.${context}.minDepth${min_depth}"
+output_file="${input_dir}/${sample}_R1_bismark_bt2_pe.${is_dedup}bedGraph.${context}.minD${min_depth}"
 
 if [ -f "$output_file" ]; then
     rm "$output_file"
