@@ -66,54 +66,68 @@ def analyze_files(file1, file2, sample_id_a, sample_id_b, output_file):
             logging.critical(f"Regions do not match at index {idx}: {region1['chrom']}:{region1['start']}-{region1['end']} vs {region2['chrom']}:{region2['start']}-{region2['end']}")
             raise ValueError(f"Regions do not match at index {idx}: {region1['chrom']}:{region1['start']}-{region1['end']} vs {region2['chrom']}:{region2['start']}-{region2['end']}")
         
+        # Calculate distance to the next region if it exists and is on the same chromosome
+        distance_to_next = None
+        if idx + 1 < len(data1) and data1.iloc[idx + 1]['chrom'] == region1['chrom']:
+            next_region = data1.iloc[idx + 1]
+            distance_to_next = next_region['start'] - region1['end']
+            distance_to_next = int(distance_to_next)
+
+        
         methylation_percents1, methylation_percents2, p_value1, p_value2, test_name, p_value, length_mismatch = process_region(region1, region2)
         
         # Calculate mean methylation percent difference
         mean_meth_pct1 = np.mean(methylation_percents1)
         mean_meth_pct2 = np.mean(methylation_percents2)
-        mean_delta_meth_pct = mean_meth_pct2 - mean_meth_pct1
-        if mean_delta_meth_pct > 0:
-            mean_delta_meth_type = "hypermethylation"
-        elif mean_delta_meth_pct < 0:
-            mean_delta_meth_type = "hypomethylation"
+        delta_mean_meth_pct = mean_meth_pct2 - mean_meth_pct1
+        if delta_mean_meth_pct > 0:
+            delta_pattern = "hyper"
+        elif delta_mean_meth_pct < 0:
+            delta_pattern = "hypo"
         else:
-            mean_delta_meth_type = "neutral"
+            delta_pattern = "neutral"
+        
         
         # Calculate count-based methylation difference
         if length_mismatch:
-            count_delta_meth_type = "diff_length"
+            delta_cytosine_pattern = None
+        elif region1['cytosine_count'] in [0]:
+            delta_cytosine_pattern = None
         else:
-            hyper_count = sum(1 for m1, m2 in zip(methylation_percents1, methylation_percents2) if m2 - m1 > 0)
-            hypo_count = sum(1 for m1, m2 in zip(methylation_percents1, methylation_percents2) if m2 - m1 < 0)
-            
-            if hyper_count > hypo_count:
-                count_delta_meth_type = "hypermethylation"
-            elif hypo_count > hyper_count:
-                count_delta_meth_type = "hypomethylation"
-            else:
-                count_delta_meth_type = "neutral"
-        
+            delta_cytosine_pattern = []
+            for m1, m2 in zip(methylation_percents1, methylation_percents2):
+                if m2 - m1 >= 20.0:
+                    delta_cytosine_pattern.append('^')
+                elif m2 - m1 <= -20.0:
+                    delta_cytosine_pattern.append('_')
+                else:
+                    delta_cytosine_pattern.append('=')
+            delta_cytosine_pattern = f"|{''.join(map(str, delta_cytosine_pattern))}|"
+
         results.append({
             "chrom": region1['chrom'],
             "start": region1['start'],
             "end": region1['end'],
-            f"{sample_id_a}_methylation_percents": '|'.join(map(str, methylation_percents1)),
-            f"{sample_id_b}_methylation_percents": '|'.join(map(str, methylation_percents2)),
-            "mean_delta_meth_pct": mean_delta_meth_pct,
-            "mean_delta_meth_type": mean_delta_meth_type,
-            "count_delta_meth_type": count_delta_meth_type,
-            f"{sample_id_a}_normality_p": p_value1,
-            f"{sample_id_b}_normality_p": p_value2,
-            "Test": test_name,
-            "Test_p_value": p_value
+            "distance_to_next": distance_to_next,
+            "region_length": region1['region_length'],
+            "cytosine_count": f"{region1['cytosine_count']}|{region2['cytosine_count']}",
+            "delta_cytosine_pattern": delta_cytosine_pattern,
+            f"{sample_id_a}_mean_meth_pct": round(mean_meth_pct1, 3),
+            f"{sample_id_b}_mean_meth_pct": round(mean_meth_pct2, 3),
+            "delta_mean_meth_pct": round(delta_mean_meth_pct, 3),
+            "delta_pattern": delta_pattern,
+            "significant_delta": "Y" if abs(delta_mean_meth_pct) >= 20 else "N",
+            "p_value": p_value,
+            "significant_p_0.01": "Y" if p_value < 0.01 else "N"
         })
     
     # FDR correction
-    p_values = [result["Test_p_value"] for result in results]
+    p_values = [result["p_value"] for result in results]
     _, corrected_p_values, _, _ = multipletests(p_values, method='fdr_bh')
     
     for result, corrected_p in zip(results, corrected_p_values):
-        result["Corrected_p_value"] = corrected_p
+        result["fdr"] = corrected_p
+        result["significant_fdr_0.01"] = "Y" if corrected_p < 0.01 else "N"
     
     # Write results to output file
     df_results = pd.DataFrame(results)
