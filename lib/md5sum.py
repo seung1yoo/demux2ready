@@ -54,10 +54,7 @@ def load_existing_md5(file_path):
             existing_md5[path] = (md5, size)
     return existing_md5
 
-def main(path: Path, date: str, existing_files: list, num_cpus: int):
-    # Define the file extensions to look for
-    extensions = [".cram", ".cnv.vcf.gz", ".sv.vcf.gz", ".hard-filtered.gvcf.gz", ".hard-filtered.vcf.gz", ".html"]
-    
+def main(path: Path, date: str, existing_files: list, num_cpus: int, extensions: list):
     # Load existing MD5 checksums
     existing_md5 = {}
     for file in existing_files:
@@ -79,9 +76,12 @@ if __name__ == "__main__":
     parser.add_argument("--date", type=str, default=datetime.now().strftime("%Y-%m-%d"))
     parser.add_argument("--existing", nargs="+", help="List of files with existing MD5 checksums", default=[])
     parser.add_argument("--cpus", type=int, default=1, help="Number of CPUs to use for parallel processing")
+    parser.add_argument("--extensions", nargs="+", help="List of file extensions to process", 
+                        default=[".cram", ".cnv.vcf.gz", ".sv.vcf.gz", ".hard-filtered.gvcf.gz", ".hard-filtered.vcf.gz", ".html", "fastq.gz"])
+
     args = parser.parse_args()
     
     # Convert args.path to an absolute path
     args.path = args.path.resolve()
     
-    main(args.path, args.date, args.existing, args.cpus)
+    main(args.path, args.date, args.existing, args.cpus, args.extensions)
