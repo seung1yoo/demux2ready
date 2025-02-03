@@ -811,7 +811,7 @@ class Demux2Ready:
             #_cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.bam.hsmetrics.txt"))
             _cmd.append(str(self.bismarkpath / f"{target_id}_R1_bismark_bt2_pe.deduplicated.bam.hsmetrics.txt"))
             _cmd.append("--REFERENCE_SEQUENCE")
-            _cmd.append(self.meta_dic["bismark_genome"])
+            _cmd.append(self.meta_dic["genome_fasta"])
             _cmd.append("--BAIT_INTERVALS")
             _cmd.append(self.meta_dic["interval_list"])
             _cmd.append("--TARGET_INTERVALS")
