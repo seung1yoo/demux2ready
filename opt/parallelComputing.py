@@ -111,6 +111,11 @@ class ParallelComputing:
 		logger = self.task_loggers[task_id]
 		
 		try:
+			# Log the command being executed
+			logger.log_stdout("=" * 80)
+			logger.log_stdout(f"Executing command: {script}")
+			logger.log_stdout("=" * 80)
+			
 			# Run the command and capture output
 			process = subprocess.Popen(
 				script,
@@ -140,6 +145,11 @@ class ParallelComputing:
 			return_code = process.poll()
 			if return_code != 0:
 				logger.log_stderr(f"Process exited with return code {return_code}")
+				
+			# Log command completion
+			logger.log_stdout("-" * 80)
+			logger.log_stdout(f"Command completed with return code: {return_code}")
+			logger.log_stdout("-" * 80)
 				
 		except Exception as e:
 			logger.log_stderr(f"Error executing script: {str(e)}")
