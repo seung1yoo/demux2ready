@@ -30,6 +30,9 @@ class TaskLogger:
 		self.logger = logging.getLogger(f"task_{task_id}")
 		self.logger.setLevel(logging.INFO)
 		
+		# Remove any existing handlers
+		self.logger.handlers = []
+		
 		# File handler for stdout
 		stdout_handler = logging.FileHandler(self.stdout_log)
 		stdout_handler.setLevel(logging.INFO)
@@ -44,12 +47,14 @@ class TaskLogger:
 		stderr_handler.setFormatter(stderr_formatter)
 		self.logger.addHandler(stderr_handler)
 		
-		# Console handler
-		console_handler = logging.StreamHandler()
-		console_handler.setLevel(logging.INFO)
-		console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-		console_handler.setFormatter(console_formatter)
-		self.logger.addHandler(console_handler)
+		# Prevent propagation to root logger
+		self.logger.propagate = False
+		
+		# Task execution info
+		self.start_time = None
+		self.end_time = None
+		self.return_code = None
+		self.command = None
 
 	def log_stdout(self, message: str) -> None:
 		"""Log stdout message."""
@@ -62,6 +67,26 @@ class TaskLogger:
 	def get_log_files(self) -> Tuple[Path, Path]:
 		"""Get the paths of log files."""
 		return self.stdout_log, self.stderr_log
+
+	def get_execution_info(self) -> Dict:
+		"""Get task execution information."""
+		duration = None
+		if self.start_time and self.end_time:
+			duration = self.end_time - self.start_time
+			
+		return {
+			'task_id': self.task_id,
+			'command': self.command,
+			'start_time': self.start_time,
+			'end_time': self.end_time,
+			'duration': duration,
+			'return_code': self.return_code,
+			'status': 'SUCCESS' if self.return_code == 0 else 'FAILED',
+			'log_files': {
+				'stdout': str(self.stdout_log),
+				'stderr': str(self.stderr_log)
+			}
+		}
 
 class ParallelComputing:
 	def __init__(self):
@@ -109,6 +134,8 @@ class ParallelComputing:
 	def _run_thread(self, script: str, task_id: str) -> None:
 		"""Execute a single script in a thread with logging."""
 		logger = self.task_loggers[task_id]
+		logger.command = script
+		logger.start_time = datetime.now()
 		
 		try:
 			# Log the command being executed
@@ -142,18 +169,21 @@ class ParallelComputing:
 					break
 			
 			# Get return code
-			return_code = process.poll()
-			if return_code != 0:
-				logger.log_stderr(f"Process exited with return code {return_code}")
+			logger.return_code = process.poll()
+			if logger.return_code != 0:
+				logger.log_stderr(f"Process exited with return code {logger.return_code}")
 				
 			# Log command completion
 			logger.log_stdout("-" * 80)
-			logger.log_stdout(f"Command completed with return code: {return_code}")
+			logger.log_stdout(f"Command completed with return code: {logger.return_code}")
 			logger.log_stdout("-" * 80)
 				
 		except Exception as e:
 			logger.log_stderr(f"Error executing script: {str(e)}")
+			logger.return_code = 1
 			raise
+		finally:
+			logger.end_time = datetime.now()
 		
 		time.sleep(0)
 
@@ -308,6 +338,37 @@ class ParallelComputing:
 				if engine == "SA":
 					self._run_standalone(script_list)
 
+	def _print_summary(self) -> None:
+		"""Print summary of all task executions."""
+		print("\n" + "=" * 80)
+		print("Task Execution Summary")
+		print("=" * 80)
+		
+		total_tasks = len(self.task_loggers)
+		successful_tasks = sum(1 for logger in self.task_loggers.values() if logger.return_code == 0)
+		failed_tasks = total_tasks - successful_tasks
+		
+		print(f"\nTotal Tasks: {total_tasks}")
+		print(f"Successful: {successful_tasks}")
+		print(f"Failed: {failed_tasks}")
+		print(f"Success Rate: {(successful_tasks/total_tasks)*100:.1f}%")
+		
+		print("\nDetailed Task Information:")
+		print("-" * 80)
+		for task_id, logger in self.task_loggers.items():
+			info = logger.get_execution_info()
+			duration_str = f"{info['duration'].total_seconds():.2f}s" if info['duration'] else "N/A"
+			print(f"\nTask ID: {info['task_id']}")
+			print(f"Command: {info['command']}")
+			print(f"Status: {info['status']}")
+			print(f"Return Code: {info['return_code']}")
+			print(f"Duration: {duration_str}")
+			print(f"Log Files:")
+			print(f"  - stdout: {info['log_files']['stdout']}")
+			print(f"  - stderr: {info['log_files']['stderr']}")
+		
+		print("\n" + "=" * 80)
+
 	def run(self) -> None:
 		"""Main execution method."""
 		try:
@@ -318,6 +379,9 @@ class ParallelComputing:
 			
 			self.msg += f"----------------------\nEnd : {time.strftime('%Y/%m/%d/%H:%M:%S')}\n----------------------\n"
 			print(self.msg)
+			
+			# Print execution summary
+			self._print_summary()
 			
 		except Exception as e:
 			error_msg = f"Error\n-----------------------------------\n{str(e)}\n-----------------------------------\n"
