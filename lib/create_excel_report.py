@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--output',
         type=str,
-        default='sequencing_report.xlsx',
+        default='PROJECT_ID-RawFastq-Download-info-vDATE.xlsx',
         help='Output Excel file name'
     )
     return parser.parse_args()
