@@ -39,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--output',
         type=str,
-        default='PROJECT_ID-RawFastq-Download-info-vDATE.xlsx',
+        default='PROJECT_ID-RawFastq-Info-vDATE.xlsx',
         help='Output Excel file name'
     )
     return parser.parse_args()
@@ -97,12 +97,12 @@ def adjust_column_widths(worksheet, df):
         # Set the column width
         worksheet.column_dimensions[get_column_letter(idx)].width = adjusted_width
 
-def format_file_size_column(worksheet, df):
+def format_column_as_number(worksheet, df, column_name):
     """Format File Size column as numbers with thousand separators"""
     # Find the File Size column index
     size_col_idx = None
     for idx, col in enumerate(df.columns, 1):
-        if col == 'File Size (Bytes)':
+        if col in [column_name]:
             size_col_idx = idx
             break
     
@@ -142,106 +142,210 @@ def add_hyperlinks(worksheet, df):
             cell.font = Font(color="0000FF", underline="single")
             cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
 
-def create_download_info(md5sum_path: str, s3upload_path: str) -> pd.DataFrame:
-    """Create download information table"""
-    # Read md5sum file
-    md5sum_df = pd.read_csv(md5sum_path, sep='\s+', header=None, names=['md5', 'file_path'])
-    md5sum_df['file_name'] = md5sum_df['file_path'].apply(lambda x: Path(x).name)
-    
-    # Read S3 upload result
-    s3upload_df = pd.read_csv(s3upload_path, sep='\t')
-    
-    # Convert File_size(Bytes) to numeric, removing commas
-    s3upload_df['File_size(Bytes)'] = s3upload_df['File_size(Bytes)'].str.replace(',', '').astype(float)
-    
-    # Merge dataframes with outer join to include all files
-    download_info = pd.merge(
-        s3upload_df,
-        md5sum_df[['file_name', 'md5']],
-        left_on='File_name',
-        right_on='file_name',
-        how='outer'
-    )
-    
-    # Select and rename columns
-    download_info = download_info[[
-        'File_name', 'md5', 'File_size(Bytes)', 'S3_url', 'Presigned_url',
-        'Create_date', 'Expiry_date'
-    ]].rename(columns={
-        'File_name': 'File Name',
-        'md5': 'MD5 Checksum',
-        'File_size(Bytes)': 'File Size (Bytes)',
-        'S3_url': 'S3 URL',
-        'Presigned_url': 'Presigned URL',
-        'Create_date': 'Create Date',
-        'Expiry_date': 'Expiry Date'
-    })
-    
-    return download_info
 
-def create_sequencing_info(fastp_path: str) -> pd.DataFrame:
-    """Create sequencing information table"""
-    # Read fastp summary
-    sequencing_info = pd.read_csv(fastp_path, sep='\t')
-    
-    # Rename columns for better readability
-    column_mapping = {
-        'Samples': 'Sample ID',
-        'ReadsCount': 'Total Reads',
-        'BasesCount': 'Total Bases',
-        'BasesCountGb': 'Total Bases (GB)',
-        'GCRate': 'GC Rate (%)',
-        'Q20BaseRate': 'Q20 Rate (%)',
-        'Q30BaseRate': 'Q30 Rate (%)',
-        'DupRate': 'Duplication Rate (%)',
-        'InsertSize': 'Insert Size (bp)',
-        'R1MeanLen': 'R1 Mean Length (bp)',
-        'R2MeanLen': 'R2 Mean Length (bp)',
-        'GoodReadRate': 'Good Read Rate (%)'
-    }
-    
-    sequencing_info = sequencing_info.rename(columns=column_mapping)
-    return sequencing_info
+class DataLoader:
 
-def main():
-    """Main function"""
-    args = parse_args()
-    
-    try:
-        # Create download information
-        logger.info("Creating download information table...")
-        download_info = create_download_info(args.md5sum, args.s3upload)
+    def create_md5sum_info(self, md5sum_path: Path) -> pd.DataFrame:
+        md5sum_df = pd.read_csv(md5sum_path, sep='\s+', header=None, names=['md5', 'file_path'])
+        md5sum_df['file_name'] = md5sum_df['file_path'].apply(lambda x: Path(x).name)
+
+        # Select and rename columns
+        result_df = pd.DataFrame()
+        result_df['File Name'] = md5sum_df['file_name']
+        result_df['MD5 Checksum'] = md5sum_df['md5']
+
+        return result_df
+
+    def create_download_info(self, s3upload_path: Path) -> pd.DataFrame:
+        # Read S3 upload result
+        s3upload_df = pd.read_csv(s3upload_path, sep='\t')
         
-        # Create sequencing information
-        logger.info("Creating sequencing information table...")
-        sequencing_info = create_sequencing_info(args.fastp)
+        # Convert File_size(Bytes) to numeric, removing commas
+        s3upload_df['File_size(Bytes)'] = s3upload_df['File_size(Bytes)'].str.replace(',', '').astype(float)
         
-        # Create Excel writer
-        logger.info(f"Writing results to {args.output}...")
-        with pd.ExcelWriter(args.output, engine='openpyxl') as writer:
-            # Write dataframes to Excel
-            download_info.to_excel(writer, sheet_name='Download Info', index=False)
+        # Select and rename columns
+        result_df = pd.DataFrame()
+        result_df['File Name'] = s3upload_df['File_name']
+        result_df['File Size (Bytes)'] = s3upload_df['File_size(Bytes)']
+        result_df['S3 URL'] = s3upload_df['S3_url']
+        result_df['Presigned URL'] = s3upload_df['Presigned_url']
+        result_df['Create Date'] = s3upload_df['Create_date']
+        result_df['Expiry Date'] = s3upload_df['Expiry_date']
+        
+        return result_df
+
+    def create_download_info_with_md5sum(self, s3upload_path: Path, md5sum_path: Path) -> pd.DataFrame:
+        # Read md5sum file
+        md5sum_df = pd.read_csv(md5sum_path, sep='\s+', header=None, names=['md5', 'file_path'])
+        md5sum_df['file_name'] = md5sum_df['file_path'].apply(lambda x: Path(x).name)
+        
+        # Read S3 upload result
+        s3upload_df = pd.read_csv(s3upload_path, sep='\t')
+        
+        # Convert File_size(Bytes) to numeric, removing commas
+        s3upload_df['File_size(Bytes)'] = s3upload_df['File_size(Bytes)'].str.replace(',', '').astype(float)
+        
+        # Merge dataframes with outer join to include all files
+        download_info = pd.merge(
+            s3upload_df,
+            md5sum_df[['file_name', 'md5']],
+            left_on='File_name',
+            right_on='file_name',
+            how='outer'
+        )
+        
+        # Select and rename columns
+        result_df = pd.DataFrame()
+        result_df['File Name'] = download_info['File_name']
+        result_df['MD5 Checksum'] = download_info['md5']
+        result_df['File Size (Bytes)'] = download_info['File_size(Bytes)']
+        result_df['S3 URL'] = download_info['S3_url']
+        result_df['Presigned URL'] = download_info['Presigned_url']
+        result_df['Create Date'] = download_info['Create_date']
+        result_df['Expiry Date'] = download_info['Expiry_date']
+        
+        return result_df
+
+    def create_sequencing_info(self, fastp_path: Path) -> pd.DataFrame:
+        """Create sequencing information table"""
+        # Read fastp summary
+        sequencing_info = pd.read_csv(fastp_path, sep='\t')
+        
+        # Rename columns for better readability
+        column_mapping = {
+            'Samples': 'Sample ID',
+            'ReadsCount': 'Total Reads',
+            'BasesCount': 'Total Bases',
+            'BasesCountGb': 'Total Bases (GB)',
+            'GCRate': 'GC Rate (%)',
+            'Q20BaseRate': 'Q20 Rate (%)',
+            'Q30BaseRate': 'Q30 Rate (%)',
+            'DupRate': 'Duplication Rate (%)',
+            'InsertSize': 'Insert Size (bp)',
+            'R1MeanLen': 'R1 Mean Length (bp)',
+            'R2MeanLen': 'R2 Mean Length (bp)',
+            'GoodReadRate': 'Good Read Rate (%)'
+        }
+        
+        sequencing_info = sequencing_info.rename(columns=column_mapping)
+        return sequencing_info
+
+class ReportGenerator(DataLoader):
+
+    def __init__(self, args: argparse.Namespace):
+        self.fastp_path = Path(args.fastp)
+        self.md5sum_path = Path(args.md5sum)
+        self.s3upload_path = Path(args.s3upload)
+        self.output_path = Path(args.output)
+
+        self.report_type = self.define_report_type()
+
+    def define_report_type(self) -> str:
+        if self.fastp_path.exists() and self.s3upload_path.exists() and self.md5sum_path.exists():
+            return 'all'
+        elif self.fastp_path.exists() and self.md5sum_path.exists():
+            return 'sequencing_m5sum'
+        elif self.fastp_path.exists():
+            return 'sequencing'
+        elif self.s3upload_path.exists() and self.md5sum_path.exists():
+            return 'download_m5sum'
+        elif self.s3upload_path.exists():
+            return 'download'
+        else:
+            raise ValueError("No valid input files found")
+
+    def create_all_report(self) -> None: 
+        sequencing_info = self.create_sequencing_info(self.fastp_path)
+        download_info = self.create_download_info_with_md5sum(self.s3upload_path, self.md5sum_path)
+        
+        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
+            download_info.to_excel(writer, sheet_name='Download Info', index=False)
             
-            # Apply table styling to both sheets
-            apply_table_style(writer.sheets['Download Info'], download_info)
             apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
+            apply_table_style(writer.sheets['Download Info'], download_info)
             
-            # Adjust column widths for each sheet
-            adjust_column_widths(writer.sheets['Download Info'], download_info)
             adjust_column_widths(writer.sheets['Sequencing Info'], sequencing_info)
+            adjust_column_widths(writer.sheets['Download Info'], download_info)
             
-            # Format File Size column as numbers
-            format_file_size_column(writer.sheets['Download Info'], download_info)
-            
-            # Add hyperlinks to Presigned URLs
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Reads')
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Bases')
+            format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
             add_hyperlinks(writer.sheets['Download Info'], download_info)
+    
+    def create_sequencing_md5sum_report(self) -> None:
+        sequencing_info = self.create_sequencing_info(self.fastp_path)
+        download_info = self.create_md5sum_info(self.md5sum_path)
         
-        logger.info("Report generation completed successfully!")
+        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+            sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
+            download_info.to_excel(writer, sheet_name='Download Info', index=False)
+            
+            apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
+            apply_table_style(writer.sheets['Download Info'], download_info)
+            
+            adjust_column_widths(writer.sheets['Sequencing Info'], sequencing_info)
+            adjust_column_widths(writer.sheets['Download Info'], download_info)
+            
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Bases')
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Reads')
+            format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
+            add_hyperlinks(writer.sheets['Download Info'], download_info)
+
+    def create_sequencing_report(self) -> None:
+        sequencing_info = self.create_sequencing_info(self.fastp_path)
         
-    except Exception as e:
-        logger.error(f"Error occurred: {str(e)}")
-        raise
+        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+            sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
+            apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
+            adjust_column_widths(writer.sheets['Sequencing Info'], sequencing_info)
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Reads')
+            format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Bases')
+
+    def create_download_md5sum_report(self) -> None:
+        download_info = self.create_download_info_with_md5sum(self.s3upload_path, self.md5sum_path)
+        
+        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+            download_info.to_excel(writer, sheet_name='Download Info', index=False)
+            apply_table_style(writer.sheets['Download Info'], download_info)
+            adjust_column_widths(writer.sheets['Download Info'], download_info)
+            format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
+            add_hyperlinks(writer.sheets['Download Info'], download_info)
+
+    def create_download_report(self) -> None:
+        download_info = self.create_download_info(self.s3upload_path)
+        
+        with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+            download_info.to_excel(writer, sheet_name='Download Info', index=False)
+            apply_table_style(writer.sheets['Download Info'], download_info)
+            adjust_column_widths(writer.sheets['Download Info'], download_info)
+            format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
+            add_hyperlinks(writer.sheets['Download Info'], download_info)
+
+
+
+
+
+
+def main(args: argparse.Namespace):
+
+    rg = ReportGenerator(args)
+
+    if rg.report_type in ['all']:
+        rg.create_all_report()
+    elif rg.report_type in ['sequencing_m5sum']:
+        rg.create_sequencing_md5sum_report()
+    elif rg.report_type in ['sequencing']:
+        rg.create_sequencing_report()
+    elif rg.report_type in ['download_m5sum']:
+        rg.create_download_md5sum_report()
+    elif rg.report_type in ['download']:
+        rg.create_download_report()
+
 
 if __name__ == '__main__':
-    main() 
+    args = parse_args()
+    main(args) 
+
+
+
