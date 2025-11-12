@@ -552,9 +552,9 @@ class Demux2Ready:
             items.append(round(float(info_dic["summary"]["before_filtering"]["q20_rate"])*100, 3))
             items.append(round(float(info_dic["summary"]["before_filtering"]["q30_rate"])*100, 3))
             items.append(round(float(info_dic["duplication"]["rate"])*100, 3))
-            items.append(info_dic["insert_size"]["peak"])
+            items.append(info_dic.get("insert_size", {}).get("peak", 0))
             items.append(info_dic["summary"]["before_filtering"]["read1_mean_length"])
-            items.append(info_dic["summary"]["before_filtering"]["read2_mean_length"])
+            items.append(info_dic["summary"]["before_filtering"].get("read2_mean_length", 0))
             items.append(round(int(info_dic["filtering_result"]["passed_filter_reads"])/float(total_reads)*100, 3))
             outfh.write("{0}\n".format("\t".join([str(x) for x in items])))
         outfh.close()
@@ -704,7 +704,7 @@ class Demux2Ready:
                 outfh.write(result.stdout)
         outfh.close()
         return 1
-    
+
     def make_bismark_align_sh(self):
         outfh = self.bismark_sh.open("w")
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -747,7 +747,7 @@ class Demux2Ready:
             _cmd.append(str(self.bismarkpath / f"{target_id}_deduplicate_bismark.log"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
-    
+
     def make_bismark_methylcall_sh(self):
         outfh = self.bismark_sh.open("a")
         for target_id, read_dic in self.fastq_dic['ready'].items():
@@ -772,7 +772,7 @@ class Demux2Ready:
             _cmd.append(str(self.bismarkpath / f"{target_id}_bismark_methylation_extractor.log"))
             outfh.write("{0}\n".format(' '.join(_cmd)))
         outfh.close()
-            
+
     def make_bismark_report_sh(self):
         outfh = self.bismark_sh.open("a")
         _cmd = ['pushd']
