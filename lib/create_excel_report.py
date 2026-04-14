@@ -57,7 +57,7 @@ def apply_table_style(worksheet, df):
     )
     center_alignment = Alignment(horizontal='center', vertical='center')
     left_alignment = Alignment(horizontal='left', vertical='center')
-    
+
     # Apply styles to header row
     for col in range(1, len(df.columns) + 1):
         cell = worksheet.cell(row=1, column=col)
@@ -65,13 +65,13 @@ def apply_table_style(worksheet, df):
         cell.fill = header_fill
         cell.alignment = center_alignment
         cell.border = border
-    
+
     # Apply styles to data rows
     for row in range(2, len(df) + 2):
         for col in range(1, len(df.columns) + 1):
             cell = worksheet.cell(row=row, column=col)
             cell.border = border
-            
+
             # Left align specific columns
             column_name = df.columns[col-1]
             if column_name in ['File Name', 'S3 URL']:
@@ -86,7 +86,7 @@ def adjust_column_widths(worksheet, df):
         if col == 'Presigned URL':
             worksheet.column_dimensions[get_column_letter(idx)].width = len('Presigned URL') + 2
             continue
-            
+
         # For other columns, adjust based on content
         max_length = max(
             df[col].astype(str).apply(len).max(),
@@ -105,10 +105,10 @@ def format_column_as_number(worksheet, df, column_name):
         if col in [column_name]:
             size_col_idx = idx
             break
-    
+
     if size_col_idx is None:
         return
-    
+
     # Format each cell in the File Size column
     for row in range(2, len(df) + 2):  # Start from row 2 (after header)
         cell = worksheet.cell(row=row, column=size_col_idx)
@@ -124,10 +124,10 @@ def add_hyperlinks(worksheet, df):
         if col == 'Presigned URL':
             url_col_idx = idx
             break
-    
+
     if url_col_idx is None:
         return
-    
+
     # Add hyperlinks to each cell in the Presigned URL column
     for row in range(2, len(df) + 2):  # Start from row 2 (after header)
         cell = worksheet.cell(row=row, column=url_col_idx)
@@ -159,10 +159,10 @@ class DataLoader:
     def create_download_info(self, s3upload_path: Path) -> pd.DataFrame:
         # Read S3 upload result
         s3upload_df = pd.read_csv(s3upload_path, sep='\t')
-        
+
         # Convert File_size(Bytes) to numeric, removing commas
         s3upload_df['File_size(Bytes)'] = s3upload_df['File_size(Bytes)'].str.replace(',', '').astype(float)
-        
+
         # Select and rename columns
         result_df = pd.DataFrame()
         result_df['File Name'] = s3upload_df['File_name']
@@ -171,20 +171,20 @@ class DataLoader:
         result_df['Presigned URL'] = s3upload_df['Presigned_url']
         result_df['Create Date'] = s3upload_df['Create_date']
         result_df['Expiry Date'] = s3upload_df['Expiry_date']
-        
+
         return result_df
 
     def create_download_info_with_md5sum(self, s3upload_path: Path, md5sum_path: Path) -> pd.DataFrame:
         # Read md5sum file
         md5sum_df = pd.read_csv(md5sum_path, sep='\s+', header=None, names=['md5', 'file_path'])
         md5sum_df['file_name'] = md5sum_df['file_path'].apply(lambda x: Path(x).name)
-        
+
         # Read S3 upload result
         s3upload_df = pd.read_csv(s3upload_path, sep='\t')
-        
+
         # Convert File_size(Bytes) to numeric, removing commas
         s3upload_df['File_size(Bytes)'] = s3upload_df['File_size(Bytes)'].str.replace(',', '').astype(float)
-        
+
         # Merge dataframes with outer join to include all files
         download_info = pd.merge(
             s3upload_df,
@@ -193,7 +193,7 @@ class DataLoader:
             right_on='file_name',
             how='outer'
         )
-        
+
         # Select and rename columns
         result_df = pd.DataFrame()
         result_df['File Name'] = download_info['File_name']
@@ -203,14 +203,14 @@ class DataLoader:
         result_df['Presigned URL'] = download_info['Presigned_url']
         result_df['Create Date'] = download_info['Create_date']
         result_df['Expiry Date'] = download_info['Expiry_date']
-        
+
         return result_df
 
     def create_sequencing_info(self, fastp_path: Path) -> pd.DataFrame:
         """Create sequencing information table"""
         # Read fastp summary
         sequencing_info = pd.read_csv(fastp_path, sep='\t')
-        
+
         # Rename columns for better readability
         column_mapping = {
             'Samples': 'Sample ID',
@@ -226,7 +226,7 @@ class DataLoader:
             'R2MeanLen': 'R2 Mean Length (bp)',
             'GoodReadRate': 'Good Read Rate (%)'
         }
-        
+
         sequencing_info = sequencing_info.rename(columns=column_mapping)
         return sequencing_info
 
@@ -254,39 +254,39 @@ class ReportGenerator(DataLoader):
         else:
             raise ValueError("No valid input files found")
 
-    def create_all_report(self) -> None: 
+    def create_all_report(self) -> None:
         sequencing_info = self.create_sequencing_info(self.fastp_path)
         download_info = self.create_download_info_with_md5sum(self.s3upload_path, self.md5sum_path)
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
             download_info.to_excel(writer, sheet_name='Download Info', index=False)
-            
+
             apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
             apply_table_style(writer.sheets['Download Info'], download_info)
-            
+
             adjust_column_widths(writer.sheets['Sequencing Info'], sequencing_info)
             adjust_column_widths(writer.sheets['Download Info'], download_info)
-            
+
             format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Reads')
             format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Bases')
             format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
             add_hyperlinks(writer.sheets['Download Info'], download_info)
-    
+
     def create_sequencing_md5sum_report(self) -> None:
         sequencing_info = self.create_sequencing_info(self.fastp_path)
         download_info = self.create_md5sum_info(self.md5sum_path)
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
             download_info.to_excel(writer, sheet_name='Download Info', index=False)
-            
+
             apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
             apply_table_style(writer.sheets['Download Info'], download_info)
-            
+
             adjust_column_widths(writer.sheets['Sequencing Info'], sequencing_info)
             adjust_column_widths(writer.sheets['Download Info'], download_info)
-            
+
             format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Bases')
             format_column_as_number(writer.sheets['Sequencing Info'], sequencing_info, 'Total Reads')
             format_column_as_number(writer.sheets['Download Info'], download_info, 'File Size (Bytes)')
@@ -294,7 +294,7 @@ class ReportGenerator(DataLoader):
 
     def create_sequencing_report(self) -> None:
         sequencing_info = self.create_sequencing_info(self.fastp_path)
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             sequencing_info.to_excel(writer, sheet_name='Sequencing Info', index=False)
             apply_table_style(writer.sheets['Sequencing Info'], sequencing_info)
@@ -304,7 +304,7 @@ class ReportGenerator(DataLoader):
 
     def create_download_md5sum_report(self) -> None:
         download_info = self.create_download_info_with_md5sum(self.s3upload_path, self.md5sum_path)
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             download_info.to_excel(writer, sheet_name='Download Info', index=False)
             apply_table_style(writer.sheets['Download Info'], download_info)
@@ -314,7 +314,7 @@ class ReportGenerator(DataLoader):
 
     def create_download_report(self) -> None:
         download_info = self.create_download_info(self.s3upload_path)
-        
+
         with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
             download_info.to_excel(writer, sheet_name='Download Info', index=False)
             apply_table_style(writer.sheets['Download Info'], download_info)
@@ -345,7 +345,7 @@ def main(args: argparse.Namespace):
 
 if __name__ == '__main__':
     args = parse_args()
-    main(args) 
+    main(args)
 
 
 
